@@ -88,6 +88,9 @@ func _ready() -> void:
 	is_built = true
 	built.emit()
 
+func _exit_tree() -> void:
+	Game.set_rain(0.0)  # ушли из города — дождя не слышно
+
 ## Перейти на уровень: раскрыть города на пути, остальное затемнить, камера летит туда (если fly).
 func go_to(new_path: Array, instant := false, fly := true) -> void:
 	path = new_path
@@ -348,6 +351,7 @@ func _copy(item: Dictionary, index: int) -> void:
 	Game.clipboard = f.copy_as(f.name)
 	Game.clip_cut = false
 	ui.set_clipboard(Game.clipboard)
+	Game.sfx("copy")
 	ui.toast(I18n.t("Скопировано: %s") % f.name, Color(0.7, 1.0, 0.7))
 
 ## Вырезать: в буфере сам файл; «Вставить» в другой дом — он туда переедет.
@@ -356,6 +360,7 @@ func _cut(item: Dictionary, index: int) -> void:
 	Game.clipboard = f
 	Game.clip_cut = true
 	ui.set_clipboard(f, true)
+	Game.sfx("copy")
 	ui.toast(I18n.t("Вырезано: %s — выбери дом и вставь (Ctrl+V)") % f.name, Color(1.0, 0.85, 0.5))
 
 ## Дом, где сейчас живёт файл (на этой планете); {} — не нашёлся.
@@ -388,9 +393,11 @@ func _paste(item: Dictionary) -> void:
 		Game.clipboard = null
 		Game.clip_cut = false
 		ui.set_clipboard(null)
+		Game.sfx("paste")
 		ui.toast(I18n.t("«%s» переезжает в «%s»") % [moved, item.folder.name], Color(0.7, 0.9, 1.0))
 		return
 	var f = map.paste(item, Game.clipboard)
+	Game.sfx("paste")
 	ui.toast(I18n.t("Вставлено в «%s»: %s") % [item.folder.name, f.name], Color(0.7, 0.9, 1.0))
 	_refresh(item)
 
@@ -530,6 +537,7 @@ func _tick_time(delta: float) -> void:
 	map.time_scale = minf(speed, 10.0)  # жители на ×60 не носятся как угорелые
 	var rain := rain_of(Game.tree_seed(disk_name) + city.name.hash(), day, hour) if Game.settings.weather else 0.0
 	map.weather.amount = rain
+	Game.set_rain(rain)
 	map.set_daylight(night_of(hour), dusk_of(hour))
 	Game.play_music("space" if night_of(hour) > 0.6 else "village")  # ночью — тихий эмбиент
 	var sky := I18n.t(part_of_day(hour)) + (I18n.t(" · дождь") if rain > 0.3 else "")

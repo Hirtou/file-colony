@@ -130,6 +130,7 @@ const EN := {
 	"Управление и горячие клавиши  (F1)": "Controls and hotkeys  (F1)",
 	"Снимок сохранён: %s": "Screenshot saved: %s",
 	"Пауза": "Paused",
+	"Звуки": "Sounds",
 	"Время идёт": "Time is running",
 	"P / пробел": "P / Space",
 	"пауза времени": "pause time",

@@ -551,6 +551,7 @@ func _process(delta: float) -> void:
 		h.update(delta)
 		if h.shot and not h.applied:
 			h.applied = true
+			Game.sfx("shot", 0.8)
 			remove_file(h.item, h.file)
 	_hunts = _hunts.filter(func(h): return not h.over)
 	if _hunt_node:

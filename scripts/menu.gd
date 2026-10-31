@@ -250,6 +250,19 @@ func _make_settings(root: Control) -> PanelContainer:
 	mus.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	mus.value_changed.connect(func(x): Game.set_setting("music", x))
 	rm.add_child(mus)
+	var rs := HBoxContainer.new()
+	v.add_child(rs)
+	_label(rs, "Звуки", 16).custom_minimum_size.x = 170
+	var snd := HSlider.new()
+	snd.min_value = 0
+	snd.max_value = 100
+	snd.step = 5
+	snd.value = Game.settings.sounds
+	snd.custom_minimum_size.x = 170
+	snd.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	snd.value_changed.connect(func(x): Game.set_setting("sounds", x))
+	snd.drag_ended.connect(func(_c): Game.sfx("paste"))  # послушать громкость
+	rs.add_child(snd)
 	var row2 := HBoxContainer.new()
 	v.add_child(row2)
 	_label(row2, "Скорость времени", 16).custom_minimum_size.x = 170

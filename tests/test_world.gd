@@ -496,3 +496,11 @@ func test_rain():
 		if top > 0.0:
 			rainy += 1
 	assert_between(rainy, 8, 35, "дождь примерно в каждый третий день")
+
+## Звуки из чисел: строятся, не пустые, дождь — петля.
+func test_sounds():
+	var S := load("res://scripts/sfx.gd")
+	for s in ["rain", "shot", "copy", "paste"]:
+		var w: AudioStreamWAV = S.get_stream(s)
+		assert_gt(w.data.size(), 1000, s)
+	assert_eq(S.get_stream("rain").loop_mode, AudioStreamWAV.LOOP_FORWARD)

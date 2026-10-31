@@ -17,6 +17,7 @@ const DEFAULTS := {
 	"cam_speed": 600.0,
 	"time_speed": 0,  # индекс в TIME_SPEEDS
 	"music": 60.0,    # громкость музыки, 0..100
+	"sounds": 70.0,   # громкость звуков (дождь, выстрел, вставка), 0..100
 	"lang": "",       # ru / en; "" — по языку системы
 }
 const MUSIC_DIR := "res://assets/music/"
@@ -35,6 +36,9 @@ var _fps: Label
 var _players: Array[AudioStreamPlayer] = []  # два плеера — для плавного перехода между треками
 var _cur := 0
 var _track := ""
+const SFX := preload("res://scripts/sfx.gd")
+var _sfx: Array[AudioStreamPlayer] = []
+var _rain: AudioStreamPlayer = null
 
 func _ready() -> void:
 	_load()
@@ -177,6 +181,43 @@ func play_music(track: String) -> void:
 	tw.tween_property(p, "volume_db", _music_db(), FADE)
 	tw.tween_property(old, "volume_db", -80.0, FADE)
 	tw.chain().tween_callback(old.stop)
+
+## Короткий звук (copy / paste / shot ...). Звуки из чисел — scripts/sfx.gd.
+func sfx(sound: String, volume := 1.0) -> void:
+	if settings.sounds <= 0.0 or DisplayServer.get_name() == "headless":
+		return
+	var p: AudioStreamPlayer = null
+	for q in _sfx:
+		if not q.playing:
+			p = q
+			break
+	if p == null:
+		if _sfx.size() >= 8:
+			return
+		p = AudioStreamPlayer.new()
+		add_child(p)
+		_sfx.append(p)
+	p.stream = SFX.get_stream(sound)
+	p.volume_db = linear_to_db(maxf(settings.sounds / 100.0 * volume, 0.0001))
+	p.pitch_scale = randf_range(0.94, 1.06)
+	p.play()
+
+## Шум дождя: сила 0..1 (0 — тишина). Петля играет, пока идёт дождь.
+func set_rain(amount: float) -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	if _rain == null:
+		_rain = AudioStreamPlayer.new()
+		_rain.stream = SFX.get_stream("rain")
+		add_child(_rain)
+	var v: float = amount * settings.sounds / 100.0 * 0.55
+	if v < 0.01:
+		if _rain.playing:
+			_rain.stop()
+		return
+	_rain.volume_db = linear_to_db(v)
+	if not _rain.playing:
+		_rain.play()
 
 func _music_db() -> float:
 	var v: float = settings.music / 100.0
