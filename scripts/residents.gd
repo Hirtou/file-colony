@@ -47,6 +47,7 @@ var _sights: Array = []             # куда ходят по делам: {cell
 var doing: Array = []               # чем житель занят сейчас (для панели)
 var chat: Array = []                # с кем болтает (FileItem) или null
 var _at: Array = []                 # чем займётся, когда дойдёт
+var carry := PackedByteArray()      # 1 — переезжает, несёт коробку с вещами
 var _door: Array[Vector2i] = []     # дверь каждого дома
 var _seen := PackedInt32Array()     # обход в ширину: метка обхода по клеткам area
 var _prev := PackedInt32Array()     # откуда пришли
@@ -121,6 +122,7 @@ func _spawn(c: Vector2i, st: int) -> void:
 	doing.append("гуляет по улице" if st == State.OUT else "дома")
 	_at.append("гуляет по улице")
 	chat.append(null)
+	carry.append(0)
 	cell.append(c)
 	_next.append(c)
 	pos.append(center(c))
@@ -176,6 +178,7 @@ func remove(r: int) -> void:
 	doing.remove_at(r)
 	_at.remove_at(r)
 	chat.remove_at(r)
+	carry.remove_at(r)
 	for c in _busy.keys():
 		if _busy[c] == r:
 			_busy.erase(c)
@@ -196,6 +199,48 @@ func remove(r: int) -> void:
 	_t.remove_at(r)
 	_wait.remove_at(r)
 	_reindex()
+
+## Переезд жителя r в дом h2 этого же посёлка (файл уже переложен в папку h2): выходит из своей
+## двери на улицу и с коробкой вещей идёт к свободной клетке нового дома. false — там нет места.
+func relocate(r: int, h2: int) -> bool:
+	var free: Array[Vector2i] = []
+	for c in home_cells(h2):
+		if not _busy.has(c):
+			free.append(c)
+	if free.is_empty() or count(h2) >= WorldMap.MAX_RESIDENTS:
+		return false
+	_end_chat(r)
+	var h1 := home[r]
+	var from: Vector2i = _next[r]  # доделает текущий шаг
+	var out: Array = []
+	if _floor[h1].has_point(from) or from == _door[h1]:
+		# сначала из старого дома на улицу (пока он ещё житель старого дома)
+		var it: Dictionary = homes[h1]
+		var front: Vector2i = it.door + it.door_side
+		out = find_path(r, from, front)
+		if out.is_empty() and from != front:
+			return false
+		from = front
+	for c in _busy.keys():
+		if _busy[c] == r:
+			_busy.erase(c)
+	home[r] = h2
+	var dst: Vector2i = free[_rng.randi_range(0, free.size() - 1)]
+	var to := find_path(r, from, dst)
+	_busy[dst] = r
+	if to.is_empty() and from != dst:
+		# не дойти — просто оказывается дома
+		cell[r] = dst
+		_next[r] = dst
+		pos[r] = center(dst)
+		route[r] = []
+		state[r] = State.HOME
+	else:
+		route[r] = out + to
+		state[r] = State.WALK_HOME
+		carry[r] = 1
+	_reindex()
+	return true
 
 ## Номера файлов в папках домов сдвинулись — пересчитать file_index и rid.
 func _reindex() -> void:
@@ -254,6 +299,8 @@ func where(r: int) -> String:
 				return "спит"
 			return _spots.get(cell[r], "хлопочет по дому") if still else "ходит по дому"
 		State.WALK_HOME:
+			if carry[r] == 1:
+				return "переезжает в «%s» с вещами" % homes[home[r]].folder.name
 			return "спешит домой — темнеет" if night else "идёт домой"
 		State.WALK_OUT, State.OUT:
 			return doing[r]
@@ -290,6 +337,7 @@ func step(delta: float) -> void:
 				_try_chat(r)
 			State.WALK_HOME:
 				state[r] = State.HOME
+				carry[r] = 0  # донёс вещи
 				_wait[r] = _rng.randf_range(4.0, 12.0)
 			State.HOME:
 				_home_tick(r, delta)

@@ -37,11 +37,48 @@ static func look(file) -> Dictionary:
 		# головной убор (0 — без него); выбирается последним, чтобы прежняя внешность не менялась
 		"hat": 0 if rng.randf() < 0.4 else rng.randi_range(1, RANDOM_HATS),
 		"hat_color": HAT_COLORS[rng.randi_range(0, HAT_COLORS.size() - 1)],
+		"chest": file.type == FakeTree.Type.ARCHIVE,  # архив носит сундучок за спиной
 	}
 
 ## Нарисовать жителя в клетке с центром p (u — размер клетки). facing — Residents.Facing.
-## detail = false — издалека: без тени, одежды и мелочей (быстрее).
-static func draw(ci: CanvasItem, p: Vector2, u: float, lk: Dictionary, facing: int, walk: float, dim: bool, detail := true) -> void:
+## detail = false — издалека: без тени, одежды и мелочей (быстрее). carry — несёт коробку с вещами.
+static func draw(ci: CanvasItem, p: Vector2, u: float, lk: Dictionary, facing: int, walk: float, dim: bool, detail := true, carry := false) -> void:
+	var back := facing == Residents.Facing.UP
+	var has_chest: bool = lk.get("chest", false) and detail
+	if has_chest and not back:
+		_chest(ci, p, u, facing, walk, dim)  # спереди сундучок выглядывает из-за спины
+	_draw_body(ci, p, u, lk, facing, walk, dim, detail)
+	if has_chest and back:
+		_chest(ci, p, u, facing, walk, dim)
+	if carry and not back:
+		_box(ci, p, u, lk, facing, walk, dim)
+
+## Сундучок архива на спине.
+static func _chest(ci: CanvasItem, p: Vector2, u: float, facing: int, walk: float, dim: bool) -> void:
+	var bob := -absf(sin(walk * TAU)) * u * 0.04
+	var side := -1.0 if facing == Residents.Facing.LEFT else (1.0 if facing == Residents.Facing.RIGHT else 0.0)
+	var c := p + Vector2(-side * u * 0.2, (u * 0.08 if facing == Residents.Facing.UP else -u * 0.06) + bob)
+	var r := Rect2(c - Vector2(u * 0.17, u * 0.13), Vector2(u * 0.34, u * 0.26))
+	ci.draw_rect(r.grow(u * 0.03), _d(OUTLINE, dim))
+	ci.draw_rect(r, _d(Color(0.55, 0.36, 0.18), dim))
+	ci.draw_rect(Rect2(r.position, Vector2(r.size.x, r.size.y * 0.35)), _d(Color(0.65, 0.44, 0.22), dim))  # крышка
+	ci.draw_rect(Rect2(Vector2(c.x - u * 0.025, r.position.y), Vector2(u * 0.05, r.size.y)), _d(Color(0.72, 0.6, 0.3), dim))
+	ci.draw_rect(Rect2(c + Vector2(-u * 0.035, -u * 0.02), Vector2(u * 0.07, u * 0.06)), _d(Color(0.85, 0.7, 0.3), dim))  # замок
+
+## Коробка с вещами в руках у переезжающего.
+static func _box(ci: CanvasItem, p: Vector2, u: float, lk: Dictionary, facing: int, walk: float, dim: bool) -> void:
+	var bob := -absf(sin(walk * TAU)) * u * 0.04
+	var side := -1.0 if facing == Residents.Facing.LEFT else (1.0 if facing == Residents.Facing.RIGHT else 0.0)
+	var c := p + Vector2(side * u * 0.18, u * 0.12 + bob)
+	var r := Rect2(c - Vector2(u * 0.2, u * 0.15), Vector2(u * 0.4, u * 0.3))
+	ci.draw_rect(r.grow(u * 0.03), _d(OUTLINE, dim))
+	ci.draw_rect(r, _d(Color(0.78, 0.6, 0.38), dim))
+	ci.draw_line(Vector2(r.position.x, c.y - u * 0.02), Vector2(r.end.x, c.y - u * 0.02), _d(Color(0.6, 0.44, 0.26), dim), u * 0.03)
+	ci.draw_rect(Rect2(Vector2(c.x - u * 0.04, r.position.y), Vector2(u * 0.08, r.size.y)), _d(Color(0.9, 0.82, 0.6), dim))  # скотч
+	for s in [-1.0, 1.0]:  # руки
+		_outlined_ellipse(ci, c + Vector2(s * u * 0.2, u * 0.02), Vector2.ONE * u * 0.055, u * 0.025, _d(lk.skin, dim), dim)
+
+static func _draw_body(ci: CanvasItem, p: Vector2, u: float, lk: Dictionary, facing: int, walk: float, dim: bool, detail: bool) -> void:
 	var o := u * 0.045  # обводка
 	var bob := -absf(sin(walk * TAU)) * u * 0.04  # покачивание при ходьбе
 	var front := facing != Residents.Facing.UP

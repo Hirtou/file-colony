@@ -228,6 +228,27 @@ func test_delete_by_killers():
 	assert_eq(item.folder.files.size(), before - 1)
 	assert_false(t.files.has(file))
 
+func test_move_to_other_house():
+	var t := _town(6)
+	var r := 0
+	var h1: int = t.home[r]
+	var h2 := (h1 + 1) % t.homes.size()
+	var src: Dictionary = t.homes[h1]
+	var dst: Dictionary = t.homes[h2]
+	var file = t.files[r]
+	src.folder.files.erase(file)
+	dst.folder.files.append(file)
+	assert_true(t.relocate(r, h2), "в новом доме есть место")
+	assert_true(_indices_ok(t), "номера файлов пересчитаны")
+	var was_carrying := t.carry[t.files.find(file)] == 1
+	for i in 600:  # 2 минуты
+		t.step(0.2)
+	var r2 := t.files.find(file)
+	assert_eq(t.home[r2], h2, "живёт в новом доме")
+	assert_eq(t.carry[r2], 0, "донёс вещи")
+	assert_true(was_carrying or t.state[r2] == Residents.State.HOME, "нёс коробку")
+	assert_true(t.check() and _indices_ok(t))
+
 func test_residents_have_things_to_do():
 	var t := _town(5)
 	var seen := {}

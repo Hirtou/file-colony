@@ -71,7 +71,12 @@ void fragment() {
 		vec3 b = vec3(n.x, n.y * ct + n.z * st, -n.y * st + n.z * ct);
 		float lon = atan(b.z, b.x) - rot;
 		float lat = asin(clamp(b.y, -1.0, 1.0));
-		vec3 albedo = texture(TEXTURE, vec2(lon / TAU + 0.5, 0.5 - lat / PI)).rgb;
+		// 5 выборок вокруг точки — берег без «лесенки» от пикселей развёртки
+		vec2 uv = vec2(lon / TAU + 0.5, 0.5 - lat / PI);
+		vec2 px = 0.6 / vec2(textureSize(TEXTURE, 0));
+		vec3 albedo = (texture(TEXTURE, uv).rgb * 2.0 + texture(TEXTURE, uv + vec2(px.x, 0.0)).rgb
+			+ texture(TEXTURE, uv - vec2(px.x, 0.0)).rgb + texture(TEXTURE, uv + vec2(0.0, px.y)).rgb
+			+ texture(TEXTURE, uv - vec2(0.0, px.y)).rgb) / 6.0;
 
 		float d = dot(n, L);
 		float day = smoothstep(-0.15, 0.35, d);  // мягкая граница дня и ночи

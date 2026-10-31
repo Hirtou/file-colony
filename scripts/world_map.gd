@@ -65,6 +65,7 @@ var _hunts: Array = []        # идущие удаления (Hunt)
 var _hunt_node: Node2D
 
 signal file_deleted(item: Dictionary)  # файл дома удалён (киллеры выстрелили)
+signal files_changed(item: Dictionary) # в доме поменялись файлы (переселение)
 var _marked: Array = []
 
 ## Сколько жителей рисуется в доме.
@@ -448,12 +449,49 @@ func remove_file(item: Dictionary, file) -> void:
 	var r := t.files.find(file)
 	if r >= 0:
 		t.remove(r)
+	_fill_from_hidden(item)
+	file_deleted.emit(item)
+
+## В доме освободилось место — ждавший за «+N» файл выходит жителем.
+func _fill_from_hidden(item: Dictionary) -> void:
+	var t := town_of(item)
+	var h: int = t.home_of[item.folder]
 	for f in item.folder.files:
 		if t.count(h) >= drawn_count(item.folder):
 			break
 		if not t.files.has(f):
 			t.add_file(h, f, false)
-	file_deleted.emit(item)
+
+## Переселить файл в другой дом (выдуманное дерево): житель выходит из старого дома и несёт
+## коробку с вещами к новому. Дом в другом городе — уходит из своего и входит в дверь нового.
+## Имя занято — как в проводнике: «Имя - копия». Возвращает новое имя; "" — нельзя (за ним киллеры).
+func move_file(src: Dictionary, file, dst: Dictionary) -> String:
+	if src == dst or is_hunted(src, src.folder.files.find(file)):
+		return ""
+	var t1 := town_of(src)
+	var t2 := town_of(dst)
+	src.folder.files.erase(file)
+	src.folder.file_count = src.folder.files.size()
+	file.name = FakeTree.copy_name(dst.folder, file.name)
+	dst.folder.files.append(file)
+	dst.folder.file_count = dst.folder.files.size()
+	var r := t1.files.find(file)
+	var h2: int = t2.home_of[dst.folder]
+	if t1 == t2 and r >= 0:
+		if not t1.relocate(r, h2):
+			t1.remove(r)  # в новом доме нет места — будет за «+N»
+	else:
+		if r >= 0:
+			t1.remove(r)
+		t1._reindex()
+		var r2 := t2.add_file(h2, file)
+		if r2 >= 0:
+			t2.carry[r2] = 1
+	t2._reindex()
+	_fill_from_hidden(src)
+	files_changed.emit(src)
+	files_changed.emit(dst)
+	return file.name
 
 ## Вставить копию файла в дом: новый житель входит через дверь. Возвращает копию.
 func paste(item: Dictionary, src):
@@ -538,7 +576,9 @@ func _draw_labels() -> void:
 			labels.append(it)
 	for it in labels:
 		if it.kind == "city":
-			_banner(Vector2(it.plaza.get_center().x, it.plaza.position.y), it.folder.name, 16 if it.depth == 1 else 13, z, _dim(it))
+			# табличка — посреди площади (там нет домов); вблизи полупрозрачная, чтобы не закрывала жителей
+			var near := clampf((WorldLayout.TILE * z - 14.0) / 16.0, 0.0, 1.0)
+			_banner(it.plaza.get_center(), it.folder.name, 16 if it.depth == 1 else 13, z, _dim(it), 1.0 - 0.55 * near)
 		else:
 			_text(Vector2(it.pos.x, it.rect.end.y), it.folder.name, 12, z, 4.0, _dim(it))
 	if focus != null:
@@ -642,7 +682,7 @@ func _draw_town(t: Residents, z: float, view: Rect2, sel_t: Residents, marked: A
 	var tick := Time.get_ticks_msec() / 1600  # кто сейчас говорит в паре
 	for r in order:
 		var dim := only and not marked.has(r)
-		Pawn.draw(_overlay, t.pos[r], u, t.looks[r], t.facing[r], t.walk[r], dim, u * z >= SIMPLE_PX)
+		Pawn.draw(_overlay, t.pos[r], u, t.looks[r], t.facing[r], t.walk[r], dim, u * z >= SIMPLE_PX, t.carry[r] == 1)
 		if u * z < SIMPLE_PX:
 			continue
 		if t.chat[r] != null and (tick % 2 == 0) == (String(t.files[r].name) < String(t.chat[r].name)):
@@ -704,15 +744,15 @@ func _text(pos: Vector2, text: String, size: int, z: float, gap_px: float, dim: 
 	_labels.draw_string(_font, p, text, HORIZONTAL_ALIGNMENT_CENTER, w, size, Color(1, 1, 1, 0.45 if dim else 1.0))
 	_labels.draw_set_transform_matrix(Transform2D.IDENTITY)
 
-## Табличка с названием деревни над площадью.
-func _banner(pos: Vector2, text: String, size: int, z: float, dim: bool) -> void:
+## Табличка с названием деревни посреди площади (pos — её центр); a — общая прозрачность.
+func _banner(pos: Vector2, text: String, size: int, z: float, dim: bool, a := 1.0) -> void:
 	_labels.draw_set_transform(pos, 0, Vector2.ONE / z)
 	var tw := _font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
-	var box := Rect2(Vector2(-tw / 2 - 10, -size - 16), Vector2(tw + 20, size + 12))
-	_labels.draw_rect(box, Color(0.18, 0.12, 0.07, 0.5 if dim else 0.9))
-	_labels.draw_rect(box, Color(0.85, 0.7, 0.45, 0.4 if dim else 0.9), false, 1.5)
-	_labels.draw_string(_font, Vector2(-tw / 2, -10), text, HORIZONTAL_ALIGNMENT_LEFT, -1, size,
-		Color(1, 0.95, 0.85, 0.45 if dim else 1.0))
+	var box := Rect2(Vector2(-tw / 2 - 10, -(size + 12) / 2.0), Vector2(tw + 20, size + 12))
+	_labels.draw_rect(box, Color(0.18, 0.12, 0.07, (0.5 if dim else 0.9) * a))
+	_labels.draw_rect(box, Color(0.85, 0.7, 0.45, (0.4 if dim else 0.9) * a), false, 1.5)
+	_labels.draw_string(_font, Vector2(-tw / 2, box.position.y + 6 + size * 0.82), text, HORIZONTAL_ALIGNMENT_LEFT, -1, size,
+		Color(1, 0.95, 0.85, (0.45 if dim else 1.0) * maxf(a, 0.6)))
 	_labels.draw_set_transform_matrix(Transform2D.IDENTITY)
 
 ## Что под точкой m: {} / {type: "file", item (дом), index (файл)} / {type: "folder", item}.

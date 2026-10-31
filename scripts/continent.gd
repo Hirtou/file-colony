@@ -51,7 +51,8 @@ func _ready() -> void:
 	root = cached.root if not cached.is_empty() else FakeTree.generate(seed_value, disk_name)
 	map.setup(root, seed_value, cached.get("world", {}))
 	map.file_deleted.connect(_on_file_deleted)
-	ui.set_clipboard(Game.clipboard)
+	map.files_changed.connect(_refresh)
+	ui.set_clipboard(Game.clipboard, Game.clip_cut)
 	if cached.is_empty():
 		Game.cache_world(disk_name, {"root": root, "world": map.world})
 	map.shadows_enabled = Game.settings.shadows
@@ -135,6 +136,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		# горячие клавиши для выбранного: Ctrl+C, Ctrl+V, Delete
 		if event.keycode == KEY_C and event.ctrl_pressed and map.selected.get("type") == "file":
 			_copy(map.selected.item, map.selected.index)
+		elif event.keycode == KEY_X and event.ctrl_pressed and map.selected.get("type") == "file":
+			_cut(map.selected.item, map.selected.index)
 		elif event.keycode == KEY_V and event.ctrl_pressed and not map.selected.is_empty():
 			_paste(map.selected.item)
 		elif event.keycode == KEY_DELETE and map.selected.get("type") == "file":
@@ -166,7 +169,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 # --- правая кнопка: копировать, вставить, удалить ---
 
-enum M { COPY, PASTE, DELETE, OPEN, FAMILY }
+enum M { COPY, PASTE, DELETE, OPEN, FAMILY, CUT }
 
 ## Меню для того, что под мышью (_menu_for).
 func _open_menu(at: Vector2) -> void:
@@ -178,15 +181,16 @@ func _open_menu(at: Vector2) -> void:
 		var f = h.item.folder.files[h.index]
 		entries.append([f.name, -1])
 		entries.append(["Копировать", M.COPY])
+		entries.append(["Вырезать (переселить)", M.CUT])
 		if clip != null:
-			entries.append(["Вставить «%s» в этот дом" % clip.name, M.PASTE])
+			entries.append([("Переселить «%s» в этот дом" if Game.clip_cut else "Вставить «%s» в этот дом") % clip.name, M.PASTE])
 		entries.append(["Семейное древо", M.FAMILY])
 		if not map.is_hunted(h.item, h.index):
 			entries.append(["Удалить", M.DELETE])
 	elif h.get("type") == "folder":
 		entries.append([h.item.folder.name, -1])
 		if h.item.kind == "house":
-			entries.append(["Вставить «%s» сюда" % clip.name if clip != null else "Вставить (буфер пуст)", M.PASTE])
+			entries.append([("Переселить «%s» сюда" if Game.clip_cut else "Вставить «%s» сюда") % clip.name if clip != null else "Вставить (буфер пуст)", M.PASTE])
 		if h.item.kind == "city":
 			entries.append(["Открыть", M.OPEN])
 		entries.append(["Семейное древо", M.FAMILY])
@@ -200,6 +204,8 @@ func _on_menu(id: int) -> void:
 	match id:
 		M.COPY:
 			_copy(h.item, h.index)
+		M.CUT:
+			_cut(h.item, h.index)
 		M.PASTE:
 			_paste(h.item)
 		M.DELETE:
@@ -244,8 +250,24 @@ func _tree_to_map(p) -> void:
 func _copy(item: Dictionary, index: int) -> void:
 	var f = item.folder.files[index]
 	Game.clipboard = f.copy_as(f.name)
+	Game.clip_cut = false
 	ui.set_clipboard(Game.clipboard)
 	ui.toast("Скопировано: %s" % f.name, Color(0.7, 1.0, 0.7))
+
+## Вырезать: в буфере сам файл; «Вставить» в другой дом — он туда переедет.
+func _cut(item: Dictionary, index: int) -> void:
+	var f = item.folder.files[index]
+	Game.clipboard = f
+	Game.clip_cut = true
+	ui.set_clipboard(f, true)
+	ui.toast("Вырезано: %s — выбери дом и вставь (Ctrl+V)" % f.name, Color(1.0, 0.85, 0.5))
+
+## Дом, где сейчас живёт файл (на этой планете); {} — не нашёлся.
+func _house_of(file) -> Dictionary:
+	for it in map.items:
+		if it.kind == "house" and it.folder.files.has(file):
+			return it
+	return {}
 
 ## Вставить файл из буфера в дом (только дом: у хижин и городов своих жителей нет).
 func _paste(item: Dictionary) -> void:
@@ -255,6 +277,23 @@ func _paste(item: Dictionary) -> void:
 	if item.kind != "house":
 		ui.toast("Вставлять можно только в дом", Color(1.0, 0.8, 0.5))
 		return
+	if Game.clip_cut:
+		var src := _house_of(Game.clipboard)
+		if src.is_empty():
+			ui.toast("Переселять можно только в пределах одной планеты", Color(1.0, 0.8, 0.5))
+			return
+		if src == item:
+			ui.toast("Он и так живёт в этом доме", Color(1.0, 0.8, 0.5))
+			return
+		var moved := map.move_file(src, Game.clipboard, item)
+		if moved == "":
+			ui.toast("Нельзя: за ним уже пришли киллеры", Color(1.0, 0.55, 0.45))
+			return
+		Game.clipboard = null
+		Game.clip_cut = false
+		ui.set_clipboard(null)
+		ui.toast("«%s» переезжает в «%s»" % [moved, item.folder.name], Color(0.7, 0.9, 1.0))
+		return
 	var f = map.paste(item, Game.clipboard)
 	ui.toast("Вставлено в «%s»: %s" % [item.folder.name, f.name], Color(0.7, 0.9, 1.0))
 	_refresh(item)
@@ -262,6 +301,10 @@ func _paste(item: Dictionary) -> void:
 ## Удалить файл: за жителем приходят киллеры с мушкетами (сам файл удалится после выстрела).
 func _delete(item: Dictionary, index: int) -> void:
 	var f = item.folder.files[index]
+	if Game.clip_cut and Game.clipboard == f:
+		Game.clipboard = null  # вырезанный файл удаляют — в буфере его больше нет
+		Game.clip_cut = false
+		ui.set_clipboard(null)
 	if map.hunt(item, index):
 		ui.toast("За «%s» выехали киллеры…" % f.name, Color(1.0, 0.55, 0.45))
 	elif not map.is_hunted(item, index):
@@ -438,7 +481,7 @@ func debug_view(view: String) -> void:
 	for it in map.items:
 		if view == "city" and it.kind == "city" and it.depth == 1 and (best == null or it.r > best.r):
 			best = it
-		elif view in ["house", "pawns", "closeup", "hunt", "chase"] and it.kind == "house" and (best == null or it.folder.file_count > best.folder.file_count):
+		elif view in ["house", "pawns", "closeup", "hunt", "chase", "move"] and it.kind == "house" and (best == null or it.folder.file_count > best.folder.file_count):
 			best = it
 		elif view == "family" and it.kind == "house" and it.depth >= 3 and (best == null or it.folder.file_count > best.folder.file_count):
 			best = it  # дом во вложенном районе: видны дедушка, отец, братья, дети
@@ -494,6 +537,29 @@ func debug_view(view: String) -> void:
 		for i in 3:
 			hu.update(1.0 / 30.0)
 		cam.position = hu.target.lerp(hu.killers[0].pos, 0.5)
+		cam.zoom = Vector2.ONE * 2.6
+	elif view == "move":
+		# переселение: житель с коробкой идёт в соседний дом того же города
+		var t := map.town_of(best)
+		var dst = null
+		for h in t.homes:
+			if h != best and (dst == null or best.pos.distance_to(h.pos) < best.pos.distance_to(dst.pos)):
+				dst = h
+		var f = null
+		for i in best.folder.files.size():
+			var r := map.resident_id(best, i)
+			if r >= 0 and t.state[r] == Residents.State.HOME:
+				f = best.folder.files[i]
+				break
+		if dst == null or f == null:
+			return
+		map.move_file(best, f, dst)
+		select({"type": "file", "item": dst, "index": dst.folder.files.find(f)})
+		for i in 30 * 6:
+			t.step(1.0 / 30.0)
+			if t.carry[t.files.find(f)] == 1 and not t._in_home(t.files.find(f), t.cell[t.files.find(f)]):
+				break  # вышел на улицу с коробкой
+		cam.position = t.pos[t.files.find(f)]
 		cam.zoom = Vector2.ONE * 2.6
 	elif view == "chase":
 		# погоня: жертва на улице убегает, киллеры идут следом

@@ -23,6 +23,7 @@ var salt := 0                  # 0 — «Мои диски», иначе зер�
 var settings := DEFAULTS.duplicate()
 var _worlds := {}              # кэш построенных материков
 var clipboard = null           # скопированный файл (FileItem, выдуманный), общий для всех планет
+var clip_cut := false          # файл вырезан: «Вставить» переселит его, а не скопирует
 var _fps: Label
 
 func _ready() -> void:

@@ -34,6 +34,7 @@ var _toast_tw: Tween
 var _clip: PanelContainer
 var _clip_pawn: PawnView
 var _clip_name: Label
+var _clip_title: Label
 var tree: FamilyTree   # вкладка «Семейное древо»
 
 ## Житель крупно (модель файла в буфере обмена).
@@ -161,11 +162,11 @@ func _ready() -> void:
 	var cv := VBoxContainer.new()
 	cv.alignment = BoxContainer.ALIGNMENT_CENTER
 	ch.add_child(cv)
-	var ct := Label.new()
-	ct.text = "В буфере (Ctrl+V — вставить в дом):"
-	ct.add_theme_font_size_override("font_size", 12)
-	ct.modulate.a = 0.7
-	cv.add_child(ct)
+	_clip_title = Label.new()
+	_clip_title.text = "В буфере (Ctrl+V — вставить в дом):"
+	_clip_title.add_theme_font_size_override("font_size", 12)
+	_clip_title.modulate.a = 0.7
+	cv.add_child(_clip_title)
 	_clip_name = Label.new()
 	cv.add_child(_clip_name)
 	_clip.visible = false
@@ -416,11 +417,12 @@ func toast(text: String, color := Color.WHITE) -> void:
 	_toast_tw.tween_interval(1.8)
 	_toast_tw.tween_property(_toast, "modulate:a", 0.0, 0.6)
 
-## Показать в буфере скопированный файл (null — пусто).
-func set_clipboard(file) -> void:
+## Показать в буфере скопированный (cut — вырезанный) файл (null — пусто).
+func set_clipboard(file, cut := false) -> void:
 	_clip.visible = file != null
 	if file == null:
 		return
+	_clip_title.text = "Вырезан (Ctrl+V — переселить в дом):" if cut else "В буфере (Ctrl+V — вставить в дом):"
 	_clip_pawn.look = Pawn.look(file)
 	_clip_pawn.queue_redraw()
 	_clip_name.text = "%s  ·  %s" % [file.name, FakeTree.format_size(file.size)]
