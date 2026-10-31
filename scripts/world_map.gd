@@ -162,6 +162,7 @@ func setup(root, seed_value: int, prebuilt := {}, city = null, env := {}) -> voi
 	_rug_node = _container("Rugs")
 	_furn_node = _container("Furniture")
 	_decor_node = _container("Decor")
+	_canvas("Edge", _draw_edge)  # край карты тонет в дымке
 	_wild = WILDLIFE.new()
 	_wild.name = "Wildlife"
 	add_child(_wild)
@@ -727,7 +728,28 @@ func member_positions(item: Dictionary) -> PackedVector2Array:
 # --- рисование ---
 
 func _draw() -> void:
-	draw_rect(view_rect().grow(64), SEA)  # открытое море за краем карты
+	draw_rect(view_rect().grow(64), _fog())  # за краем карты — дымка над лесом
+
+## Цвет дымки за краем карты: тёмная приглушённая трава.
+func _fog() -> Color:
+	return _avg_color("ground_grass_1").darkened(0.45).lerp(Color(0.1, 0.12, 0.13), 0.35)
+
+## Край карты: полоса в EDGE клеток плавно переходит в дымку (без резкой границы).
+const EDGE := 7
+func _draw_edge() -> void:
+	if world.is_empty():
+		return
+	var c: CanvasItem = get_node("Edge")
+	var r := map_rect()
+	var w := EDGE * WorldLayout.TILE
+	var inner := r.grow(-w)
+	var fog := _fog()
+	var clear := Color(fog, 0.0)
+	var o := [r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)]
+	var i := [inner.position, Vector2(inner.end.x, inner.position.y), inner.end, Vector2(inner.position.x, inner.end.y)]
+	for k in 4:
+		var n := (k + 1) % 4
+		c.draw_polygon(PackedVector2Array([o[k], o[n], i[n], i[k]]), PackedColorArray([fog, fog, clear, clear]))
 
 func _draw_overlay() -> void:
 	if items.is_empty():
