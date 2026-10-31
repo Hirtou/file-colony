@@ -169,6 +169,7 @@ func setup(root, seed_value: int, prebuilt := {}, city = null, env := {}) -> voi
 	for i in n * n:
 		var code: int = world.ground[i]
 		if not soft_ground(code):  # улицы, площади, дворы, мостки, поля — плитками поверх мягкой земли
+			@warning_ignore("integer_division")  # номер клетки -> строка: деление нацело и нужно
 			ground.set_cell(Vector2i(i % n, i / n), t.ids[WorldLayout.G_TEX[code]], Vector2i.ZERO)
 	for fl in world.floors:
 		floors.set_cell(fl[0], t.ids[fl[1]], Vector2i.ZERO)
@@ -181,6 +182,7 @@ func setup(root, seed_value: int, prebuilt := {}, city = null, env := {}) -> voi
 	var hi := Vector2i(-1, -1)
 	for i in n * n:
 		if world.ground[i] != WorldLayout.G.WATER:
+			@warning_ignore("integer_division")  # номер клетки -> строка: деление нацело и нужно
 			var c := Vector2i(i % n, i / n)
 			lo = lo.min(c)
 			hi = hi.max(c)
@@ -192,6 +194,7 @@ func setup(root, seed_value: int, prebuilt := {}, city = null, env := {}) -> voi
 		if d.s < 2.0 or tree:
 			# лёгкий сдвиг внутри клетки, чтобы не стояли ровным строем
 			var h := absi(hash(d.c))
+			@warning_ignore("integer_division")  # цифры хэша — сдвиг декора внутри клетки
 			c += Vector2((h % 7 - 3), (h / 7 % 7 - 3)) * 1.5
 		_decor.append({"pos": c, "tex": Tiles.tex(tex), "size": WorldLayout.TILE * d.s, "tree": tree, "shadow": d.s >= 2.0})
 		if tex == "decor_lamp":
@@ -247,6 +250,7 @@ func _build_overview() -> void:
 	for i in n * n:
 		var code: int = world.ground[i]
 		if not soft_ground(code):
+			@warning_ignore("integer_division")  # номер клетки -> строка: деление нацело и нужно
 			img.set_pixel(i % n, i / n, cols[code])
 	var tree_col := Color(0.22, 0.34, 0.18)
 	for d in world.decor:
@@ -402,6 +406,7 @@ func _add_terrain() -> void:
 	for i in n * n:
 		var code: int = world.ground[i]
 		var l := terrain_layer(code)
+		@warning_ignore("integer_division")  # номер клетки -> строка: деление нацело и нужно
 		splat.set_pixel(i % n, i / n, Color8(l, 0, 0))
 		if l != TERRAIN_WATER:
 			dist[i] = 0
@@ -420,6 +425,7 @@ func _add_terrain() -> void:
 				water.append(nb)
 	var depth := Image.create_empty(n, n, false, Image.FORMAT_R8)
 	for i in n * n:
+		@warning_ignore("integer_division")  # номер клетки -> строка: деление нацело и нужно
 		depth.set_pixel(i % n, i / n, Color(minf(1.0, (dist[i] if dist[i] >= 0 else 6) / 6.0), 0, 0))
 	if _grounds == null:
 		var imgs: Array[Image] = []
@@ -558,7 +564,6 @@ func is_hunted(item: Dictionary, index: int) -> bool:
 ## Убрать файл из дома (выдуманное дерево) и его жителя; ждавший за «+N» файл выходит на его место.
 func remove_file(item: Dictionary, file) -> void:
 	var t := town_of(item)
-	var h: int = t.home_of[item.folder]
 	item.folder.files.erase(file)
 	item.folder.file_count = item.folder.files.size()
 	var r := t.files.find(file)
@@ -751,17 +756,17 @@ func _focus_frame(r: Rect2, z: float) -> void:
 	for i in 4:
 		var a: Vector2 = corners[i]
 		var b: Vector2 = corners[(i + 1) % 4]
-		var len := a.distance_to(b)
-		var dir := (b - a) / len
+		var side := a.distance_to(b)
+		var dir := (b - a) / side
 		# штрихи начинаются в точках периметра k * (dash + gap) + shift; первый — до начала стороны
 		var s := fposmod(shift - walked, dash + gap) - (dash + gap)
-		while s < len:
+		while s < side:
 			var s0 := maxf(s, 0.0)
-			var s1 := minf(s + dash, len)
+			var s1 := minf(s + dash, side)
 			if s1 > s0:
 				_labels.draw_line(a + dir * s0, a + dir * s1, Color(col, 0.85), 2.5 * px)
 			s += dash + gap
-		walked += len
+		walked += side
 	# уголки пульсируют наружу-внутрь
 	var pulse := (sin(t * 3.0) * 0.5 + 0.5)
 	var out := (4.0 + pulse * 6.0) * px
@@ -829,6 +834,7 @@ func _draw_town(t: Residents, z: float, view: Rect2, sel_t: Residents, marked: A
 		if view.grow(u).has_point(t.pos[r]):
 			order.append(r)
 	order.sort_custom(func(a, b): return t.pos[a].y < t.pos[b].y)  # нижние перекрывают верхних
+	@warning_ignore("integer_division")  # смена говорящего раз в 1.6 с — нацело
 	var tick := Time.get_ticks_msec() / 1600  # кто сейчас говорит в паре
 	var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 250.0)
 	for r in order:
