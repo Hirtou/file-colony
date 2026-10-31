@@ -1,0 +1,5 @@
+# одинаковые окончания строк у всех (как в шаблоне Godot)
+* text=auto eol=lf
+*.bat text eol=crlf
+*.png binary
+*.zip binary

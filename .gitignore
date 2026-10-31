@@ -1,0 +1,14 @@
+# кэш и импорт Godot (пересоздаётся при открытии проекта)
+.godot/
+logs/
+
+# рабочие скриншоты и локальные бэкапы
+screenshots/
+_backup/
+
+# собранная игра — выкладывается в Releases, а не в код
+build/
+*.tmp
+
+# локальные настройки Claude Code (агенты в .claude/agents — общие, их храним)
+.claude/settings.local.json
