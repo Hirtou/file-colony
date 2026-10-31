@@ -121,11 +121,7 @@ func _build_ui() -> void:
 	var gap := Control.new()
 	gap.custom_minimum_size.y = 22
 	col.add_child(gap)
-	var first := _button(col, "Мои диски", _my_disks)
-	first.add_theme_stylebox_override("normal", _primary(0.85))
-	first.add_theme_stylebox_override("hover", _primary(1.0))
-	first.add_theme_color_override("font_color", Color(0.12, 0.08, 0.03))
-	first.add_theme_color_override("font_hover_color", Color(0.08, 0.05, 0.02))
+	ContinentUI.make_primary(_button(col, "Мои диски", _my_disks))
 	_button(col, "Песочница", _toggle.bind("sandbox"))
 	_button(col, "Настройки", _toggle.bind("settings"))
 	_button(col, "Выход", func(): get_tree().quit())
@@ -150,12 +146,6 @@ func _build_ui() -> void:
 	ver.offset_left = -24
 	ver.offset_right = -24
 	ver.offset_top = -40
-
-## Главная кнопка — золотая.
-func _primary(a: float) -> StyleBoxFlat:
-	var sb := ContinentUI._box(Color(ContinentUI.ACCENT, a), Color(1.0, 0.9, 0.7, 0.6 * a), 7, 0)
-	ContinentUI._pad(sb, 12, 5)
-	return sb
 
 # --- песочница ---
 

@@ -11,6 +11,9 @@ signal file_chosen(index: int)
 signal menu_chosen(id: int)
 signal tree_pressed
 signal type_chosen(t: int)
+signal stats_pressed
+
+const STATS := preload("res://scripts/stats_view.gd")
 
 const BG := Color(0.065, 0.075, 0.1, 0.88)
 const TEXT := Color(0.92, 0.93, 0.96)
@@ -51,6 +54,7 @@ var _legend_grid: GridContainer
 var _legend_title: Button
 static var legend_open := false  # помнится, пока игра запущена
 var minimap: Minimap
+var stats: PanelContainer  # окно статистики (stats_view.gd)
 var _legend_panel: PanelContainer
 var _files_rows := 0
 
@@ -245,6 +249,11 @@ func _ready() -> void:
 	tb.tooltip_text = "Родня выбранного файла или папки  (T)"
 	tb.pressed.connect(tree_pressed.emit)
 	row.add_child(tb)
+	var st := Button.new()
+	st.text = "Статистика"
+	st.tooltip_text = "Статистика города: типы файлов, самые большие файлы и дома  (I)"
+	st.pressed.connect(stats_pressed.emit)
+	row.add_child(st)
 
 	# легенда справа снизу
 	var br := _panel(root, Vector2(1, 1), Vector2(-12, -12))
@@ -351,6 +360,11 @@ func _ready() -> void:
 	tree.offset_right = -40
 	tree.offset_bottom = -40
 	root.add_child(tree)
+
+	# статистика города — окно по центру, под ним то же затемнение
+	stats = STATS.new()
+	stats.visibility_changed.connect(func(): shade.visible = stats.visible or tree.visible)
+	root.add_child(stats)
 
 	# подсказка у мыши
 	_tip = PanelContainer.new()
@@ -481,6 +495,16 @@ static func make_theme() -> Theme:
 		t.set_stylebox("grabber_highlight", type, gh)
 		t.set_stylebox("grabber_pressed", type, gh)
 	return t
+
+## Главная кнопка экрана — золотая с тёмным текстом.
+static func make_primary(b: Button) -> void:
+	for s in [["normal", 0.85], ["hover", 1.0], ["pressed", 0.7], ["hover_pressed", 0.7]]:
+		var sb := _box(Color(ACCENT, s[1]), Color(1.0, 0.9, 0.7, 0.6 * s[1]), 7, 0)
+		_pad(sb, 12, 5)
+		b.add_theme_stylebox_override(s[0], sb)
+	b.add_theme_color_override("font_color", Color(0.12, 0.08, 0.03))
+	b.add_theme_color_override("font_hover_color", Color(0.08, 0.05, 0.02))
+	b.add_theme_color_override("font_pressed_color", Color(0.08, 0.05, 0.02))
 
 ## Скруглённая плашка с каймой (border — прозрачный цвет: без каймы).
 static func _box(bg: Color, border: Color, radius: int, pad: int) -> StyleBoxFlat:

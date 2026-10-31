@@ -45,8 +45,15 @@ func _ready() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 100
 	add_child(layer)
-	_fps = Label.new()
-	_fps.position = Vector2(8, 4)
+	_fps = Label.new()  # справа сверху — не закрывает кнопки слева
+	_fps.anchor_left = 1.0
+	_fps.anchor_right = 1.0
+	_fps.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_fps.offset_left = -8
+	_fps.offset_right = -8
+	_fps.offset_top = 4
+	_fps.add_theme_font_size_override("font_size", 12)
+	_fps.modulate.a = 0.7
 	_fps.add_theme_color_override("font_outline_color", Color.BLACK)
 	_fps.add_theme_constant_override("outline_size", 4)
 	layer.add_child(_fps)

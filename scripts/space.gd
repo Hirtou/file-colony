@@ -40,6 +40,8 @@ var _press := Vector2.ZERO
 var _moved := 0.0
 var _ui: Control
 var _enter: Button
+var _card: PanelContainer
+var _card_text: Label
 var _bar: HBoxContainer
 var _names := {}            # Globe -> Label с именем под планетой
 var _fade: ColorRect
@@ -182,6 +184,27 @@ func _build_ui() -> void:
 	_enter.offset_bottom = 26
 	_enter.pressed.connect(_approach)
 	_ui.add_child(_enter)
+	ContinentUI.make_primary(_enter)
+	# карточка диска над «Войти»: имя, объём, сколько городов и жителей
+	_card = PanelContainer.new()
+	_card.anchor_left = 1.0
+	_card.anchor_right = 1.0
+	_card.anchor_top = 0.5
+	_card.anchor_bottom = 0.5
+	_card.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_card.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_card.offset_left = -60
+	_card.offset_right = -60
+	_card.offset_top = -40
+	_card.offset_bottom = -40
+	_card.custom_minimum_size.x = 160
+	_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ui.add_child(_card)
+	_card_text = Label.new()
+	_card_text.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
+	_card_text.add_theme_font_size_override("font_size", 14)
+	_card.add_child(_card_text)
+	_enter.visibility_changed.connect(func(): _card.visible = _enter.visible)
 	_back = Button.new()
 	_back.text = "◀ К планетам"
 	_back.add_theme_font_size_override("font_size", 18)
@@ -239,6 +262,16 @@ func _select(p: Globe) -> void:
 	for i in planets.size():
 		planets[i].selected = planets[i] == p
 		(_bar.get_child(i) as Button).set_pressed_no_signal(planets[i] == p)
+	var root = Game.disk_root(p.disk_name)
+	var folders := [0]
+	var count := func(f, me: Callable) -> void:
+		folders[0] += 1
+		for c in f.children:
+			me.call(c, me)
+	count.call(root, count)
+	_card_text.text = "%s  ·  %s\n%s\n%s\n%s" % [p.disk_name, Planet.format_size(p.disk_gb),
+		I18n.t("городов: %d") % root.children.size(), I18n.t("папок: %d") % (folders[0] - 1),
+		I18n.t("жителей: %d") % root.total_files()]
 
 func _update_cam() -> void:
 	_cam.transform = Transform3D(_orbit, _focus + _orbit.z * _dist)

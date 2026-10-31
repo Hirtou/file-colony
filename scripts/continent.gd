@@ -46,6 +46,8 @@ func _ready() -> void:
 	ui.type_chosen.connect(_on_type)
 	ui.arrow.pressed.connect(_fly_to_selected)
 	ui.tree.show_on_map.connect(_tree_to_map)
+	ui.stats_pressed.connect(_open_stats)
+	ui.stats.show_on_map.connect(_stats_to_map)
 	ui.speed_pressed.connect(func(): _speed_i = (_speed_i + 1) % SPEEDS.size())
 	root = Game.disk_root(disk_name)
 	if site.is_empty():
@@ -141,6 +143,15 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F and event.ctrl_pressed:
 		get_viewport().set_input_as_handled()
 		ui.focus_search()
+		return
+	if ui.stats.visible:
+		# открыта статистика: Esc или I — закрыть
+		if event.is_action_pressed("ui_cancel") or (event is InputEventKey and event.pressed and event.keycode == KEY_I):
+			get_viewport().set_input_as_handled()
+			ui.stats.hide()
+		return
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_I and not ui.search_focused() and not ui.tree.visible:
+		_open_stats()
 		return
 	if ui.tree.visible:
 		# открыто семейное древо: Esc или T — закрыть, карту не трогаем
@@ -263,6 +274,26 @@ func _open_tree(person = null) -> void:
 			person = path[-1]
 	ui.hide_tip()
 	ui.tree.open(root, person)
+
+## Статистика открытого города: все его дома (вместе с районами).
+func _open_stats() -> void:
+	ui.hide_tip()
+	var houses := []
+	for it in map.items:
+		if it.kind == "house":
+			houses.append(it.folder)
+	ui.stats.open(city.name, houses)
+
+## Из статистики — к дому или к жителю на карте.
+func _stats_to_map(house, file) -> void:
+	var it: Dictionary = map.by_folder.get(house, {})
+	if it.is_empty():
+		return
+	go_to(it.path, false, file == null)
+	if file != null:
+		_focus_file(it, house.files.find(file))
+	else:
+		select({"type": "folder", "item": it})
 
 ## Из древа — к человеку на карте: файл — к жителю, папка — к её дому или городу.
 func _tree_to_map(p) -> void:
@@ -601,6 +632,9 @@ func debug_view(view: String) -> void:
 		for it in map.items:
 			if it.kind == "city" and it.depth == 1 and (best == null or it.r > best.r):
 				best = it
+	if view == "stats":
+		_open_stats()
+		return
 	if view == "river":
 		# река в городе: камера на воду внутри города (если река здесь течёт через город)
 		var w: Dictionary = map.world
