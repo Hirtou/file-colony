@@ -36,4 +36,4 @@
 - scripts/continent.gd + continent_ui.gd — материк и его интерфейс; scripts/family_tree.gd — семейное древо
 - scripts/tiles.gd — текстуры и TileSet; tools/make_textures.py — генератор текстур
 - старое (первый этап, держат тесты test_map): main.gd, map_layout.gd, map_view.gd, scenes/main.tscn
-- tests/ — тесты GUT; export_presets.cfg — сборка build/Provodnik.exe
+- tests/ — тесты GUT; export_presets.cfg — сборка build/FileColony.exe

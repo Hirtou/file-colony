@@ -10,7 +10,7 @@ config_version=5
 
 [application]
 
-config/name="Provodnik V2"
+config/name="Файловая колония"
 run/main_scene="res://scenes/menu.tscn"
 config/features=PackedStringArray("4.7")
 

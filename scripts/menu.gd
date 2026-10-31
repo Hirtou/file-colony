@@ -28,7 +28,7 @@ func _ready() -> void:
 	_planet.show_caption = false
 	add_child(_planet)
 	_planet.position = _planet_pos(false)
-	_planet.setup("Проводник", 210.0, 0.0)
+	_planet.setup("Файловая колония", 210.0, 0.0)
 	_build_ui()
 
 func _planet_pos(panel_open: bool) -> Vector2:
@@ -49,7 +49,7 @@ func _build_ui() -> void:
 	col.position = Vector2(90, 110)
 	col.add_theme_constant_override("separation", 14)
 	root.add_child(col)
-	var title := _label(col, "ПРОВОДНИК", 64)
+	var title := _label(col, "ФАЙЛОВАЯ\nКОЛОНИЯ", 58)
 	title.add_theme_color_override("font_color", Color(1.0, 0.94, 0.82))
 	title.add_theme_color_override("font_outline_color", Color(0.1, 0.06, 0.03))
 	title.add_theme_constant_override("outline_size", 10)
