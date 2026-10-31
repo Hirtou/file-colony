@@ -40,9 +40,10 @@ func update(delta: float, view: Rect2, zoom: float) -> void:
 		d.p += Vector2(WIND.x / aspect, WIND.y) * d.speed * delta
 		if d.p.y > 1.0 or d.p.x < 0.0:
 			d.p = Vector2(_rng.randf_range(0.0, 1.2), _rng.randf_range(-0.1, 0.0))
-			if _rng.randf() < 0.35:
-				# капля долетела — брызги в случайном месте кадра
-				_splash.append({"pos": view.position + Vector2(_rng.randf(), _rng.randf()) * view.size, "t": 0.0})
+			if _rng.randf() < 0.12:
+				# капля долетела — брызги в случайном месте кадра (на воде — шире)
+				var p := view.position + Vector2(_rng.randf(), _rng.randf()) * view.size
+				_splash.append({"pos": p, "t": 0.0, "water": _is_water(p)})
 	for s in _splash:
 		s.t += delta
 	_splash = _splash.filter(func(s): return s.t < 0.45)
@@ -55,16 +56,20 @@ func _is_water(p: Vector2) -> bool:
 func _draw() -> void:
 	var px := 1.0 / maxf(_zoom, 0.0001)  # один пиксель экрана в мировых единицах
 	draw_rect(_view, Color(0.06, 0.08, 0.12, 0.22 * amount))  # пасмурно
-	var col := Color(0.78, 0.84, 0.92, 0.35 * amount)
-	for d in _drops:
-		var a: Vector2 = _view.position + d.p * _view.size
-		var b: Vector2 = a + WIND.normalized() * d.len * _view.size.y
-		draw_line(a, b, col, 1.2 * px)
+	# все струи — одним вызовом (тонкие линии в 1 пиксель)
+	var pts := PackedVector2Array()
+	pts.resize(_drops.size() * 2)
+	var dir := WIND.normalized() * _view.size.y
+	for i in _drops.size():
+		var a: Vector2 = _view.position + _drops[i].p * _view.size
+		pts[i * 2] = a
+		pts[i * 2 + 1] = a + dir * _drops[i].len
+	if not pts.is_empty():
+		draw_multiline(pts, Color(0.78, 0.84, 0.92, 0.38 * amount))
 	for s in _splash:
 		var k: float = s.t / 0.45
-		var on_water := _is_water(s.pos)
-		var r: float = (2.0 + k * (9.0 if on_water else 5.0)) * px
-		var c := Color(0.85, 0.9, 0.97, (0.5 if on_water else 0.35) * (1.0 - k) * amount)
+		var r: float = (2.0 + k * (9.0 if s.water else 5.0)) * px
+		var c := Color(0.85, 0.9, 0.97, (0.5 if s.water else 0.35) * (1.0 - k) * amount)
 		draw_set_transform(s.pos, 0.0, Vector2(1.0, 0.6))
-		draw_arc(Vector2.ZERO, r, 0, TAU, 14, c, 1.0 * px, true)
+		draw_arc(Vector2.ZERO, r, 0, TAU, 10, c, -1.0)
 		draw_set_transform_matrix(Transform2D.IDENTITY)

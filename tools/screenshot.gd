@@ -29,6 +29,14 @@ func _initialize() -> void:
 		scene.debug_view(view)
 	for i in 10:
 		await process_frame
+	if "--fps" in OS.get_cmdline_user_args():
+		# замер: 6 секунд работы, средний FPS
+		var t0 := Time.get_ticks_msec()
+		var frames := 0
+		while Time.get_ticks_msec() - t0 < 6000:
+			await process_frame
+			frames += 1
+		print("fps: ", frames / 6.0)
 	await RenderingServer.frame_post_draw
 	var path := ProjectSettings.globalize_path("res://screenshots/" + out)
 	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
