@@ -599,6 +599,15 @@ func debug_view(view: String) -> void:
 					cam.zoom = Vector2.ONE * 0.9
 					return
 		return
+	if view == "ducks":
+		# утки на воде, круги от рыб; немного подождать, чтобы поплыли
+		var wl: Wildlife = map._wild
+		if not wl._ducks.is_empty():
+			cam.position = wl._ducks[0].pos
+			cam.zoom = Vector2.ONE * 2.2
+			for i in 90:
+				wl.update(1.0 / 30.0, map.view_rect())
+		return
 	if view == "work" or view == "fishing" or view == "field":
 		# место работы крупно: мастерская / мостки / поле
 		var key: String = {"work": "идёт в кузницу", "fishing": "идёт на рыбалку", "field": "идёт в поле"}[view]
@@ -609,6 +618,8 @@ func debug_view(view: String) -> void:
 				for t in map._towns.values():
 					for i in 600:
 						t.step(0.1)  # жители успели разойтись по делам
+				for i in 90:
+					map._wild.update(1.0 / 30.0, map.view_rect())  # дым кузницы успел подняться
 				return
 		return
 	if view == "search":

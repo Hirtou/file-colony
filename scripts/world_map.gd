@@ -118,9 +118,13 @@ var shadows_enabled := true:   # настройка «Тени»
 		shadows_enabled = v
 		if _shadows:
 			_shadows.visible = v and not _far
+		if _clouds:
+			_clouds.visible = v
 var _sel_t: Residents = null  # посёлок выбранного дома/жителя (для слоя подписей)
 var _hunts: Array = []        # идущие удаления (Hunt)
 var _hunt_node: Node2D
+var _wild: Wildlife           # утки, круги от рыб, дым кузницы
+var _clouds: Sprite2D         # тени облаков (днём)
 
 signal file_deleted(item: Dictionary)  # файл дома удалён (киллеры выстрелили)
 signal files_changed(item: Dictionary) # в доме поменялись файлы (переселение)
@@ -155,8 +159,23 @@ func setup(root, seed_value: int, prebuilt := {}, city = null, env := {}) -> voi
 	_rug_node = _container("Rugs")
 	_furn_node = _container("Furniture")
 	_decor_node = _container("Decor")
+	_wild = Wildlife.new()
+	_wild.name = "Wildlife"
+	add_child(_wild)
+	_wild.setup(world, seed_value)
 	_overlay = _canvas("Overlay", _draw_overlay)
 	_hunt_node = _canvas("Hunts", _draw_hunts)
+	_clouds = Sprite2D.new()
+	_clouds.name = "CloudShadows"
+	var cm := ShaderMaterial.new()
+	cm.shader = preload("res://shaders/cloud_shadows.gdshader")
+	cm.set_shader_parameter("n", float(world.n))
+	_clouds.material = cm
+	var white := Image.create_empty(1, 1, false, Image.FORMAT_RGBA8)
+	white.fill(Color.WHITE)
+	_clouds.texture = ImageTexture.create_from_image(white)
+	_clouds.scale = Vector2.ONE * WorldLayout.TILE * world.n  # вся карта, центр в (0, 0)
+	add_child(_clouds)
 	_night_node = _canvas("Night", _draw_night)
 	_glow_node = _container("Glow")
 	var add := CanvasItemMaterial.new()
@@ -295,6 +314,7 @@ func _update_lod() -> void:
 		l.visible = not far
 	_shadows.visible = not far and shadows_enabled
 	_decor_node.visible = not far
+	_wild.visible = not far
 	_rug_node.visible = not far
 	_furn_node.visible = not far
 	_overview.visible = far
@@ -478,6 +498,8 @@ func _process(delta: float) -> void:
 			t.step(_step_acc * time_scale)
 		_step_acc = 0.0
 	queue_redraw()
+	if _wild and not _far:
+		_wild.update(delta, view_rect())
 	# тени, декор и ночной свет неподвижны — нарисованы один раз кусками;
 	# жителей перерисовываем, только когда они сдвинулись
 	if _overlay and (stepped or _visible_towns.is_empty()):
@@ -504,6 +526,8 @@ func set_daylight(night_amount: float, dusk_amount: float) -> void:
 		_glow_node.modulate = Color(night, night, night)
 	for t in _towns.values():
 		t.night = night > 0.5
+	if _clouds:
+		(_clouds.material as ShaderMaterial).set_shader_parameter("strength", 0.22 * (1.0 - night))  # ночью теней облаков нет
 
 func _zoom() -> float:
 	var cam := get_viewport().get_camera_2d()
