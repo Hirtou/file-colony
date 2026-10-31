@@ -26,6 +26,7 @@ var is_built := false
 var hour := 9.0       # время суток, часы
 var day := 1
 var _speed_i := 0
+var paused := false   # время стоит (P / пробел): жители замирают, часы не идут
 var _index: Array = []  # всё, что можно найти поиском
 var _found: Array = []  # найденное сейчас
 var _files_of = null    # дом (Folder), чей список файлов открыт в панели
@@ -48,7 +49,11 @@ func _ready() -> void:
 	ui.tree.show_on_map.connect(_tree_to_map)
 	ui.stats_pressed.connect(_open_stats)
 	ui.stats.show_on_map.connect(_stats_to_map)
-	ui.speed_pressed.connect(func(): _speed_i = (_speed_i + 1) % SPEEDS.size())
+	ui.speed_pressed.connect(func():
+		if paused:
+			paused = false  # с паузы кнопка просто снимает паузу
+		else:
+			_speed_i = (_speed_i + 1) % SPEEDS.size())
 	root = Game.disk_root(disk_name)
 	if site.is_empty():
 		site = Game.city_sites(disk_name)[0]
@@ -183,6 +188,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			_delete(map.selected.item, map.selected.index)
 		elif event.keycode == KEY_L and not event.echo and not event.ctrl_pressed:
 			ui.toggle_legend()
+		elif (event.keycode == KEY_P or event.keycode == KEY_SPACE) and not event.echo:
+			get_viewport().set_input_as_handled()
+			paused = not paused
+			ui.toast(I18n.t("Пауза") if paused else I18n.t("Время идёт"))
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
 		if ui.search_focused():
@@ -510,7 +519,7 @@ func _fly_to_selected() -> void:
 # --- день и ночь ---
 
 func _tick_time(delta: float) -> void:
-	var speed: int = SPEEDS[_speed_i]
+	var speed: int = 0 if paused else SPEEDS[_speed_i]
 	if not Game.settings.day_night:
 		hour = 12.0  # смена дня и ночи выключена в настройках
 	else:

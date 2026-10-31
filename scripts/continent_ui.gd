@@ -610,7 +610,7 @@ func show_loading(text: String) -> void:
 
 func set_clock(text: String, speed: int) -> void:
 	_clock.text = text
-	_speed.text = "×%d" % speed
+	_speed.text = "×%d" % speed if speed > 0 else "⏸"
 
 ## rows: [[подпись, значение], ...]; пусто — спрятать (вместе со списком файлов).
 func show_info(rows: Array) -> void:

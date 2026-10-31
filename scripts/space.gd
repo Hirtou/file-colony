@@ -46,6 +46,17 @@ var _bar: HBoxContainer
 var _names := {}            # Globe -> Label с именем под планетой
 var _fade: ColorRect
 var _fade_text: Label
+var _fade_tip: Label
+const TIPS := [
+	"Совет: F1 — все клавиши управления.",
+	"Совет: I — статистика города: какие файлы занимают больше всего места.",
+	"Совет: T — семейное древо: папка — родитель, всё внутри — её дети.",
+	"Совет: цвет одежды жителя — тип файла.",
+	"Совет: в дождь жители сидят по домам.",
+	"Совет: клик по мини-карте переносит камеру.",
+	"Совет: Ctrl+F — найти любой файл или папку.",
+	"Совет: F12 — снимок экрана.",
+]
 var _back: Button
 var _hint: Label
 var _picking := false       # выбираем город на планете
@@ -248,6 +259,19 @@ func _build_ui() -> void:
 	_fade_text.add_theme_color_override("font_color", Color(1.0, 0.92, 0.75))
 	_fade_text.modulate.a = 0.0
 	fl.add_child(_fade_text)
+	# совет внизу, пока строится город (гаснет вместе с надписью)
+	_fade_tip = Label.new()
+	_fade_tip.anchor_left = 0.5
+	_fade_tip.anchor_right = 0.5
+	_fade_tip.anchor_top = 1.0
+	_fade_tip.anchor_bottom = 1.0
+	_fade_tip.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_fade_tip.offset_top = -110
+	_fade_tip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_fade_tip.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
+	_fade_tip.add_theme_font_size_override("font_size", 16)
+	_fade_tip.add_theme_color_override("font_color", Color(0.85, 0.87, 0.92, 0.75))
+	_fade_text.add_child(_fade_tip)
 
 ## В главное меню.
 func _to_menu() -> void:
@@ -497,6 +521,7 @@ func _dive_city(i: int) -> void:
 	var a_dist := _dist
 	target.spin_up()
 	_fade_text.text = I18n.t("Посадка в город «%s»…") % s.folder.name
+	_fade_tip.text = I18n.t(TIPS[randi() % TIPS.size()])
 	var tw := create_tween().set_parallel()
 	tw.tween_method(func(t: float):
 		_orbit = Basis(a_q.slerp(b_q, smoothstep(0.0, 0.6, t)))
