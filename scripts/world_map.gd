@@ -290,6 +290,38 @@ func _build_overview() -> void:
 	add_child(_overview)
 	move_child(_overview, _tile_layers[0].get_index())  # под тенями и декором, над морем
 
+## Картинка для мини-карты: клетка — пиксель, земля и вода тоже (обзор их не рисует — там шейдер).
+func minimap_image() -> Image:
+	var img := (_overview.texture as ImageTexture).get_image()
+	img.convert(Image.FORMAT_RGBA8)
+	var n: int = world.n
+	var cols := []
+	for t in TERRAIN_TEX:
+		cols.append(_avg_color(t))
+	var water := Color(0.2, 0.37, 0.46)
+	var deep := Color(0.13, 0.26, 0.36)
+	for y in n:
+		for x in n:
+			if img.get_pixel(x, y).a > 0.5:
+				continue
+			var code: int = world.ground[y * n + x]
+			if code == WorldLayout.G.WATER:
+				img.set_pixel(x, y, deep if _water_inside(x, y, n) else water)
+			else:
+				img.set_pixel(x, y, cols[terrain_layer(code)])
+	return img
+
+func _water_inside(x: int, y: int, n: int) -> bool:
+	for d in [Vector2i(2, 0), Vector2i(-2, 0), Vector2i(0, 2), Vector2i(0, -2)]:
+		var c: Vector2i = Vector2i(x, y) + d
+		if c.x < 0 or c.y < 0 or c.x >= n or c.y >= n or world.ground[c.y * n + c.x] != WorldLayout.G.WATER:
+			return false
+	return true
+
+## Мировые координаты всей карты (для мини-карты).
+func map_rect() -> Rect2:
+	return Rect2(world.origin, Vector2(world.n, world.n) * WorldLayout.TILE)
+
 var _avg_cache := {}
 
 ## Средний цвет текстуры (для обзорной карты).

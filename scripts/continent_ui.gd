@@ -12,8 +12,9 @@ signal menu_chosen(id: int)
 signal tree_pressed
 signal type_chosen(t: int)
 
-const BG := Color(0.07, 0.08, 0.11, 0.78)
+const BG := Color(0.065, 0.075, 0.1, 0.88)
 const TEXT := Color(0.92, 0.93, 0.96)
+const ACCENT := Color(0.95, 0.76, 0.42)  # золото: кайма, выбранное, ползунки
 
 var _crumbs: HBoxContainer
 var _info: PanelContainer
@@ -46,6 +47,12 @@ var _clip_title: Label
 var tree: FamilyTree   # вкладка «Семейное древо»
 var _type_rows: Array = []
 var arrow: EdgeArrow   # стрелка к выбранному за краем экрана
+var _legend_grid: GridContainer
+var _legend_title: Button
+static var legend_open := false  # помнится, пока игра запущена
+var minimap: Minimap
+var _legend_panel: PanelContainer
+var _files_rows := 0
 
 ## Житель крупно (модель файла в буфере обмена).
 class PawnView extends Control:
@@ -92,6 +99,51 @@ class EdgeArrow extends Control:
 			pressed.emit()
 			accept_event()
 
+## Мини-карта города: вся карта, рамка того, что в кадре, и выбранное; клик или перетаскивание — камера туда.
+class Minimap extends Control:
+	signal jump(world_pos: Vector2)
+	var tex: Texture2D
+	var area := Rect2()      # мировые координаты всей карты
+	var view := Rect2()      # что в кадре
+	var mark := Vector2.INF  # выбранное (мир. координаты)
+	var night := 0.0
+	var _t := 0.0
+	func _init() -> void:
+		custom_minimum_size = Vector2(176, 176)
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		tooltip_text = "Мини-карта: клик — перейти"
+	func _process(delta: float) -> void:
+		if is_visible_in_tree():
+			_t += delta
+			queue_redraw()
+	func _to_px(p: Vector2) -> Vector2:
+		return (p - area.position) / area.size * size
+	func _draw() -> void:
+		if tex == null or area.size.x <= 0.0:
+			return
+		draw_texture_rect(tex, Rect2(Vector2.ZERO, size), false, Color(1, 1, 1).darkened(night * 0.45))
+		var r := Rect2(_to_px(view.position), view.size / area.size * size).intersection(Rect2(Vector2.ZERO, size))
+		if r.size.x > 0.0:
+			draw_rect(r, Color(1, 1, 1, 0.08))
+			draw_rect(r, Color(1.0, 0.92, 0.7, 0.9), false, 1.5)
+		if mark.is_finite():
+			var p := _to_px(mark)
+			var k := 0.5 + 0.5 * sin(_t * 5.0)
+			draw_circle(p, 3.0 + k * 2.0, Color(1.0, 0.85, 0.3, 0.35 + 0.3 * k))
+			draw_circle(p, 2.5, Color(1.0, 0.9, 0.4))
+		draw_rect(Rect2(Vector2.ZERO, size), Color(ContinentUI.ACCENT, 0.35), false, 1.0)
+	func _gui_input(e: InputEvent) -> void:
+		var go := false
+		if e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT and e.pressed:
+			go = true
+		elif e is InputEventMouseMotion and e.button_mask & MOUSE_BUTTON_MASK_LEFT:
+			go = true
+		if go:
+			var p: Vector2 = e.position.clamp(Vector2.ZERO, size)
+			jump.emit(area.position + p / size * area.size)
+			accept_event()
+
 ## Цветная точка для легенды.
 class Dot extends Control:
 	var color: Color
@@ -108,7 +160,6 @@ func _ready() -> void:
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.theme = make_theme()
-	root.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST  # пиксельные рамки
 	add_child(root)
 
 	# путь сверху
@@ -197,15 +248,24 @@ func _ready() -> void:
 
 	# легенда справа снизу
 	var br := _panel(root, Vector2(1, 1), Vector2(-12, -12))
+	_legend_panel = br
 	var leg := VBoxContainer.new()
 	leg.add_theme_constant_override("separation", 2)
 	br.add_child(leg)
-	var title := Label.new()
-	title.text = "Одежда = тип файла\nклик — найти на карте"
+	var title := Button.new()  # заголовок легенды сворачивает её (L)
+	title.flat = true
+	title.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	title.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED  # текст ставит _show_legend
 	title.add_theme_font_size_override("font_size", 12)
-	title.modulate.a = 0.7
+	title.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+	title.add_theme_stylebox_override("hover", StyleBoxEmpty.new())
+	title.add_theme_stylebox_override("pressed", StyleBoxEmpty.new())
+	title.modulate.a = 0.75
 	leg.add_child(title)
 	var grid := GridContainer.new()  # типов много — в две колонки
+	_legend_grid = grid
+	_legend_title = title
+	title.pressed.connect(toggle_legend)
 	grid.columns = 2
 	grid.add_theme_constant_override("h_separation", 10)
 	grid.add_theme_constant_override("v_separation", 0)
@@ -231,6 +291,10 @@ func _ready() -> void:
 		line.add_child(b)
 		grid.add_child(line)
 		_type_rows.append(line)
+	_show_legend(legend_open)
+	minimap = Minimap.new()
+	minimap.visible = false  # покажет continent, когда карта построена
+	leg.add_child(minimap)
 
 	# буфер обмена над «Назад»: скопированный житель
 	_clip = _panel(root, Vector2(0, 1), Vector2(12, -66))
@@ -313,53 +377,169 @@ func _panel(parent: Control, anchor: Vector2, offset: Vector2) -> PanelContainer
 	parent.add_child(p)
 	return p
 
-## Общая тема интерфейса (меню тоже её берёт).
+## Общая тема интерфейса (меню, космос, древо тоже её берут): тёмное стекло, тонкая золотая кайма.
 static func make_theme() -> Theme:
 	var t := Theme.new()
 	t.default_font_size = 15
-	var bg := StyleBoxFlat.new()
-	bg.bg_color = BG
-	bg.set_corner_radius_all(6)
-	bg.set_content_margin_all(8)
-	t.set_stylebox("panel", "PanelContainer", _skin("ui_panel", bg, 8))
-	var bn := StyleBoxFlat.new()
-	bn.bg_color = Color(1, 1, 1, 0.06)
-	bn.set_corner_radius_all(4)
-	bn.content_margin_left = 8
-	bn.content_margin_right = 8
-	bn.content_margin_top = 3
-	bn.content_margin_bottom = 3
-	var bh := bn.duplicate()
-	bh.bg_color = Color(1, 1, 1, 0.18)
-	t.set_stylebox("normal", "Button", _skin("ui_button_normal", bn, 4))
-	t.set_stylebox("hover", "Button", _skin("ui_button_hover", bh, 4))
-	t.set_stylebox("pressed", "Button", _skin("ui_button_pressed", bh, 4))
-	t.set_stylebox("focus", "Button", StyleBoxEmpty.new())
-	t.set_color("font_color", "Button", TEXT)
-	var le := StyleBoxFlat.new()
-	le.bg_color = Color(0, 0, 0, 0.35)
-	le.border_color = Color(1, 1, 1, 0.25)
-	le.set_border_width_all(1)
-	le.set_corner_radius_all(4)
-	le.set_content_margin_all(6)
-	t.set_stylebox("normal", "LineEdit", le)
+	var panel := _box(BG, Color(ACCENT, 0.28), 10, 12)
+	panel.shadow_color = Color(0, 0, 0, 0.35)
+	panel.shadow_size = 10
+	panel.shadow_offset = Vector2(0, 3)
+	t.set_stylebox("panel", "PanelContainer", panel)
+	t.set_stylebox("panel", "PopupPanel", panel)
+	# кнопки: спокойные, при наведении — светлее и с золотой каймой, нажатая — золотистая
+	var bn := _box(Color(1, 1, 1, 0.06), Color(1, 1, 1, 0.10), 7, 0)
+	_pad(bn, 12, 5)
+	var bh := _box(Color(1, 1, 1, 0.13), Color(ACCENT, 0.7), 7, 0)
+	_pad(bh, 12, 5)
+	var bp := _box(Color(ACCENT, 0.28), ACCENT, 7, 0)
+	_pad(bp, 12, 5)
+	var bd := _box(Color(1, 1, 1, 0.03), Color(1, 1, 1, 0.05), 7, 0)
+	_pad(bd, 12, 5)
+	for type in ["Button", "OptionButton", "MenuButton"]:
+		t.set_stylebox("normal", type, bn)
+		t.set_stylebox("hover", type, bh)
+		t.set_stylebox("pressed", type, bp)
+		t.set_stylebox("hover_pressed", type, bp)
+		t.set_stylebox("disabled", type, bd)
+		t.set_stylebox("focus", type, StyleBoxEmpty.new())
+		t.set_color("font_color", type, TEXT)
+		t.set_color("font_hover_color", type, Color(1.0, 0.95, 0.85))
+		t.set_color("font_pressed_color", type, Color(1.0, 0.9, 0.65))
+		t.set_color("font_hover_pressed_color", type, Color(1.0, 0.9, 0.65))
+		t.set_color("font_disabled_color", type, Color(TEXT, 0.35))
+	# флажки — без подложки-кнопки, только строка
+	var flat := StyleBoxEmpty.new()
+	flat.content_margin_left = 2
+	flat.content_margin_top = 4
+	flat.content_margin_bottom = 4
+	var fh := _box(Color(1, 1, 1, 0.06), Color(0, 0, 0, 0), 6, 0)
+	_pad(fh, 2, 4)
+	for s in ["normal", "pressed", "disabled", "focus"]:
+		t.set_stylebox(s, "CheckBox", flat)
+	t.set_stylebox("hover", "CheckBox", fh)
+	t.set_stylebox("hover_pressed", "CheckBox", fh)
+	t.set_color("font_color", "CheckBox", TEXT)
+	t.set_color("font_hover_color", "CheckBox", Color(1.0, 0.95, 0.85))
+	t.set_color("font_pressed_color", "CheckBox", TEXT)
+	t.set_color("font_hover_pressed_color", "CheckBox", Color(1.0, 0.95, 0.85))
+	t.set_constant("h_separation", "CheckBox", 10)
+	t.set_icon("checked", "CheckBox", _tick(true))
+	t.set_icon("unchecked", "CheckBox", _tick(false))
+	# поля ввода
+	var le := _box(Color(0, 0, 0, 0.32), Color(1, 1, 1, 0.16), 7, 0)
+	_pad(le, 10, 6)
 	var lf := le.duplicate()
-	lf.border_color = Color(1.0, 0.85, 0.5, 0.8)
+	lf.border_color = Color(ACCENT, 0.85)
+	t.set_stylebox("normal", "LineEdit", le)
 	t.set_stylebox("focus", "LineEdit", lf)
+	t.set_stylebox("read_only", "LineEdit", le)
 	t.set_color("font_color", "LineEdit", TEXT)
-	t.set_color("font_placeholder_color", "LineEdit", Color(1, 1, 1, 0.4))
+	t.set_color("font_placeholder_color", "LineEdit", Color(1, 1, 1, 0.38))
+	t.set_color("caret_color", "LineEdit", ACCENT)
+	t.set_color("selection_color", "LineEdit", Color(ACCENT, 0.35))
 	t.set_color("font_color", "Label", TEXT)
+	# выпадающие и контекстные меню
+	var pm := _box(Color(0.06, 0.07, 0.09, 0.98), Color(ACCENT, 0.35), 8, 6)
+	t.set_stylebox("panel", "PopupMenu", pm)
+	var ph := _box(Color(ACCENT, 0.22), Color(0, 0, 0, 0), 5, 0)
+	t.set_stylebox("hover", "PopupMenu", ph)
+	t.set_color("font_color", "PopupMenu", TEXT)
+	t.set_color("font_hover_color", "PopupMenu", Color(1.0, 0.95, 0.85))
+	t.set_color("font_separator_color", "PopupMenu", Color(TEXT, 0.5))
+	t.set_constant("v_separation", "PopupMenu", 8)
+	var sep := StyleBoxLine.new()
+	sep.color = Color(1, 1, 1, 0.1)
+	t.set_stylebox("separator", "PopupMenu", sep)
+	# подсказки
+	var tip := _box(Color(0.05, 0.06, 0.08, 0.96), Color(ACCENT, 0.4), 6, 0)
+	_pad(tip, 8, 5)
+	t.set_stylebox("panel", "TooltipPanel", tip)
+	t.set_color("font_color", "TooltipLabel", TEXT)
+	# ползунки
+	var track := _box(Color(1, 1, 1, 0.12), Color(0, 0, 0, 0), 3, 0)
+	track.content_margin_top = 3
+	track.content_margin_bottom = 3
+	var fill := _box(Color(ACCENT, 0.75), Color(0, 0, 0, 0), 3, 0)
+	fill.content_margin_top = 3
+	fill.content_margin_bottom = 3
+	t.set_stylebox("slider", "HSlider", track)
+	t.set_stylebox("grabber_area", "HSlider", fill)
+	t.set_stylebox("grabber_area_highlight", "HSlider", fill)
+	t.set_icon("grabber", "HSlider", _knob(false))
+	t.set_icon("grabber_highlight", "HSlider", _knob(true))
+	# полосы прокрутки — тонкие
+	for type in ["VScrollBar", "HScrollBar"]:
+		var sc := _box(Color(1, 1, 1, 0.04), Color(0, 0, 0, 0), 4, 0)
+		_pad(sc, 3, 3)
+		var gr := _box(Color(1, 1, 1, 0.22), Color(0, 0, 0, 0), 4, 0)
+		_pad(gr, 3, 3)
+		var gh := _box(Color(ACCENT, 0.6), Color(0, 0, 0, 0), 4, 0)
+		_pad(gh, 3, 3)
+		t.set_stylebox("scroll", type, sc)
+		t.set_stylebox("grabber", type, gr)
+		t.set_stylebox("grabber_highlight", type, gh)
+		t.set_stylebox("grabber_pressed", type, gh)
 	return t
 
-## 9-patch из текстуры дизайнера (рамка 8 px); нет файла — запасной стиль.
-static func _skin(tex_name: String, fallback: StyleBox, pad: int) -> StyleBox:
-	if not Tiles.exists(tex_name):
-		return fallback
-	var sb := StyleBoxTexture.new()
-	sb.texture = Tiles.tex(tex_name)
-	sb.set_texture_margin_all(8)
-	sb.set_content_margin_all(pad + 4)
+## Скруглённая плашка с каймой (border — прозрачный цвет: без каймы).
+static func _box(bg: Color, border: Color, radius: int, pad: int) -> StyleBoxFlat:
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = bg
+	sb.border_color = border
+	sb.set_border_width_all(1 if border.a > 0.0 else 0)
+	sb.set_corner_radius_all(radius)
+	sb.set_content_margin_all(pad)
+	sb.anti_aliasing = true
 	return sb
+
+static func _pad(sb: StyleBox, h: int, v: int) -> void:
+	sb.content_margin_left = h
+	sb.content_margin_right = h
+	sb.content_margin_top = v
+	sb.content_margin_bottom = v
+
+## Значок флажка 18×18: скруглённый квадрат, у включённого — золотой с галочкой.
+static func _tick(on: bool) -> ImageTexture:
+	var n := 18
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	for y in n:
+		for x in n:
+			var p := Vector2(x + 0.5, y + 0.5)
+			var q := (p - Vector2(n, n) / 2).abs() - Vector2(n / 2.0 - 4.0, n / 2.0 - 4.0)
+			var d := Vector2(maxf(q.x, 0), maxf(q.y, 0)).length() + minf(maxf(q.x, q.y), 0) - 3.0  # расстояние до скруглённого квадрата
+			var a := clampf(0.5 - d, 0, 1)
+			var c := Color(ACCENT, a) if on else Color(1, 1, 1, a * 0.1)
+			var edge := clampf(1.0 - absf(d + 0.5), 0, 1)
+			if not on and edge > 0:
+				c = c.blend(Color(1, 1, 1, edge * 0.45))
+			if on:
+				# галочка: два отрезка
+				var t1 := _seg(p, Vector2(4.5, 9.5), Vector2(7.5, 12.5))
+				var t2 := _seg(p, Vector2(7.5, 12.5), Vector2(13.5, 5.5))
+				var k := clampf(1.8 - minf(t1, t2), 0, 1) * a
+				c = c.lerp(Color(0.1, 0.08, 0.05, a), k)
+			img.set_pixel(x, y, c)
+	return ImageTexture.create_from_image(img)
+
+static func _seg(p: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab := b - a
+	var h := clampf((p - a).dot(ab) / ab.length_squared(), 0, 1)
+	return (p - a - ab * h).length()
+
+## Ручка ползунка: светлый кружок с золотой каймой.
+static func _knob(hot: bool) -> ImageTexture:
+	var n := 16
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	for y in n:
+		for x in n:
+			var d := Vector2(x + 0.5, y + 0.5).distance_to(Vector2(n, n) / 2)
+			var a := clampf(7.0 - d, 0, 1)
+			var c := Color(1.0, 0.97, 0.9) if hot else Color(0.92, 0.9, 0.86)
+			if d > 5.0:
+				c = ACCENT
+			img.set_pixel(x, y, Color(c, a))
+	return ImageTexture.create_from_image(img)
 
 ## Строка пути: каждый пункт — кнопка.
 func set_path(names: Array) -> void:
@@ -404,14 +584,37 @@ func show_info(rows: Array) -> void:
 		show_files([])
 	for c in _info_box.get_children():
 		c.queue_free()
+	# заголовок — имя крупно; ниже строки «подпись — значение»: подпись приглушённая слева, значение справа
 	for i in rows.size():
 		var l := Label.new()
-		l.text = rows[i][1] if i == 0 else "%s: %s" % [I18n.t(rows[i][0]), rows[i][1]]
 		l.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED  # имена и уже переведённый текст
-		if i == 0:
-			l.add_theme_font_size_override("font_size", 18)
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		_info_box.add_child(l)
+		if i == 0:
+			l.text = rows[i][1]
+			l.add_theme_font_size_override("font_size", 19)
+			l.add_theme_color_override("font_color", Color(1.0, 0.95, 0.86))
+			_info_box.add_child(l)
+			var bar := ColorRect.new()
+			bar.color = Color(ACCENT, 0.6)
+			bar.custom_minimum_size = Vector2(36, 2)
+			bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+			_info_box.add_child(bar)
+			continue
+		var row := HBoxContainer.new()
+		var k := Label.new()
+		k.text = I18n.t(rows[i][0])
+		k.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
+		k.add_theme_font_size_override("font_size", 13)
+		k.modulate.a = 0.55
+		k.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+		k.custom_minimum_size.x = 70
+		row.add_child(k)
+		l.text = rows[i][1]
+		l.add_theme_font_size_override("font_size", 14)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(l)
+		_info_box.add_child(row)
 
 ## Файлы дома: rows — [[имя, размер, цвет точки], ...]; клик — file_chosen(i); пусто — спрятать.
 func show_files(rows: Array) -> void:
@@ -439,8 +642,29 @@ func show_files(rows: Array) -> void:
 		s.modulate.a = 0.6
 		line.add_child(s)
 		_files.add_child(line)
-	_files_scroll.custom_minimum_size.y = mini(rows.size(), 12) * 24
+	_files_rows = rows.size()
+	_fit_files()
 	mark_file(-1)
+
+## Список не дотягивается до легенды внизу справа: строк столько, сколько влезает по высоте окна.
+func _fit_files() -> void:
+	if _legend_panel == null:
+		return
+	var below: float = _legend_panel.get_combined_minimum_size().y + 24  # легенда с мини-картой и зазоры
+	var room := int((_files_scroll.get_viewport_rect().size.y - below - 290) / 24)
+	_files_scroll.custom_minimum_size.y = mini(_files_rows, clampi(room, 3, 14)) * 24
+	_shrink(_info)
+
+## Ужать панель, прижатую к углу, до её содержимого (растёт снова от угла).
+func _shrink(p: Control) -> void:
+	if p.grow_horizontal == Control.GROW_DIRECTION_BEGIN:
+		p.offset_left = p.offset_right
+	else:
+		p.offset_right = p.offset_left
+	if p.grow_vertical == Control.GROW_DIRECTION_BEGIN:
+		p.offset_top = p.offset_bottom
+	else:
+		p.offset_bottom = p.offset_top
 
 ## Подсветить строку i в списке файлов (-1 — ни одной).
 func mark_file(i: int) -> void:
@@ -558,6 +782,17 @@ func point_arrow(at: Vector2, text: String) -> void:
 	arrow.angle = d.angle()
 	arrow.label = text
 	arrow.visible = true
+
+func toggle_legend() -> void:
+	_show_legend(not legend_open)
+
+func _show_legend(on: bool) -> void:
+	legend_open = on
+	_legend_grid.visible = on
+	_legend_title.text = I18n.t("Одежда = тип файла  %s") % ("▾" if on else "▸")
+	_legend_title.tooltip_text = I18n.t("Свернуть / развернуть легенду  (L)") + ("\n" + I18n.t("клик по типу — найти на карте") if on else "")
+	_shrink(_legend_panel)
+	_fit_files()
 
 ## Подсветить выбранный тип в легенде (-1 — ни один).
 func mark_type(t: int) -> void:

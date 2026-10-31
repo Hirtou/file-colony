@@ -69,6 +69,14 @@ func _ready() -> void:
 	_build_index()
 	ui.set_cities(map.items.filter(func(it): return it.depth == 1).map(func(it): return it.folder.name))
 	go_to([root, city], true)
+	ui.minimap.tex = ImageTexture.create_from_image(map.minimap_image())
+	ui.minimap.area = map.map_rect()
+	ui.minimap.visible = true
+	ui.minimap.jump.connect(func(p: Vector2):
+		if _tw:
+			_tw.kill()
+		_follow = false
+		cam.position = p)
 	ui.show_loading("")
 	is_built = true
 	built.emit()
@@ -153,6 +161,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_paste(map.selected.item)
 		elif event.keycode == KEY_DELETE and map.selected.get("type") == "file":
 			_delete(map.selected.item, map.selected.index)
+		elif event.keycode == KEY_L and not event.echo and not event.ctrl_pressed:
+			ui.toggle_legend()
 	if event.is_action_pressed("ui_cancel"):
 		get_viewport().set_input_as_handled()
 		if ui.search_focused():
@@ -413,6 +423,9 @@ func _process(delta: float) -> void:
 		_info_t = 0.0
 		_show_info()
 	_update_arrow()
+	ui.minimap.view = map.view_rect()
+	ui.minimap.mark = _selected_pos() if not map.selected.is_empty() else Vector2.INF
+	ui.minimap.night = map.night
 	# камера идёт за найденным жителем, пока игрок сам не двинет её
 	if _follow:
 		if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_D):
