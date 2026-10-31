@@ -485,6 +485,7 @@ func _process(delta: float) -> void:
 		_info_t = 0.0
 		_show_info()
 	_update_arrow()
+	cam.locked = ui.tree.visible or ui.stats.visible or ui.help.visible
 	ui.minimap.view = map.view_rect()
 	ui.minimap.mark = _selected_pos() if not map.selected.is_empty() else Vector2.INF
 	ui.minimap.night = map.night

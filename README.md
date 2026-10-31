@@ -62,7 +62,7 @@ Alternatively, open the project folder in the Godot editor and press F5.
 | Context | Action |
 |---|---|
 | Space | Drag to rotate the camera, mouse wheel to zoom, ←/→ to switch drives |
-| General | WASD to move the camera, mouse wheel to zoom, Esc to go back |
+| General | WASD or arrow keys to move the camera, middle mouse button to drag the map, mouse wheel to zoom at the cursor, Esc to go back |
 | Map | Left click to select or open, right click for the context menu (copy, paste, delete, family tree) |
 | Map | Ctrl+F to search, Ctrl+C / Ctrl+V / Delete for the selected item, T to open the family tree |
 | Map | I for city statistics, L to collapse the legend, P or Space to pause time, click the minimap to move the camera |
@@ -127,7 +127,7 @@ godot --path .
 | Где | Действие |
 |---|---|
 | Космос | Перетаскивание — вращение камеры, колесо мыши — приближение, ←/→ — другой диск |
-| Везде | WASD — движение камеры, колесо мыши — приближение, Esc — назад |
+| Везде | WASD или стрелки — движение камеры, средняя кнопка мыши — перетаскивание карты, колесо мыши — приближение к курсору, Esc — назад |
 | Карта | ЛКМ — выбрать или открыть, ПКМ — контекстное меню (копировать, вставить, удалить, древо) |
 | Карта | Ctrl+F — поиск, Ctrl+C / Ctrl+V / Delete — для выбранного, T — семейное древо |
 | Карта | I — статистика города, L — свернуть легенду, P или пробел — пауза, клик по мини-карте — переместить камеру |
