@@ -601,7 +601,7 @@ func debug_view(view: String) -> void:
 		return
 	if view == "ducks":
 		# утки на воде, круги от рыб; немного подождать, чтобы поплыли
-		var wl: Wildlife = map._wild
+		var wl = map._wild
 		if not wl._ducks.is_empty():
 			cam.position = wl._ducks[0].pos
 			cam.zoom = Vector2.ONE * 2.2

@@ -123,7 +123,8 @@ var shadows_enabled := true:   # настройка «Тени»
 var _sel_t: Residents = null  # посёлок выбранного дома/жителя (для слоя подписей)
 var _hunts: Array = []        # идущие удаления (Hunt)
 var _hunt_node: Node2D
-var _wild: Wildlife           # утки, круги от рыб, дым кузницы
+const WILDLIFE := preload("res://scripts/wildlife.gd")  # напрямую: не зависит от кэша классов редактора
+var _wild: Node2D             # утки, круги от рыб, дым кузницы (Wildlife)
 var _clouds: Sprite2D         # тени облаков (днём)
 
 signal file_deleted(item: Dictionary)  # файл дома удалён (киллеры выстрелили)
@@ -159,7 +160,7 @@ func setup(root, seed_value: int, prebuilt := {}, city = null, env := {}) -> voi
 	_rug_node = _container("Rugs")
 	_furn_node = _container("Furniture")
 	_decor_node = _container("Decor")
-	_wild = Wildlife.new()
+	_wild = WILDLIFE.new()
 	_wild.name = "Wildlife"
 	add_child(_wild)
 	_wild.setup(world, seed_value)
