@@ -5,7 +5,8 @@ extends RefCounted
 ## дома и районы вдоль улиц дверью к дороге, мастерские (кузница, столярная, лавка, пекарня, рынок).
 ## Район (подпапка с подпапками) — такая же деревня поменьше. Вокруг — природа: луга, рощи, озёра, река,
 ## у берега океана — океан; из ворот дороги к краю карты, у дорог поля, у воды мостки для рыбалки.
-## build_city() -> {n, ground, walk, walls, floors, decor, furniture, items, radius, origin, town, work, signs}
+## build_city() -> {n, ground, walk, walls, floors, decor, furniture, items, radius, origin, town, work, signs,
+##   dry — клетки мостков на суше (под ними берег, не вода)}
 ##   ground: коды G (n*n); walk: 1 = по клетке можно ходить по улице (n*n)
 ##   walls: [[клетка, текстура, поворот A]]; floors: [[клетка, текстура]]; decor: [{c: центр в клетках, tex, s: размер}]
 ##   furniture: [{c: центр в клетках, tex, size: в клетках, rot}]
@@ -389,7 +390,7 @@ static func build_city(root, city, seed_value: int, env := {}) -> Dictionary:
 	var dry: float = env.get("dry", 0.0)
 	var ter := _terrain(n, town, rng, env)
 	var ctx := {"n": n, "ground": _paint_ground(ter.land, n, seed_value, dry), "walls": [], "floors": [],
-		"decor": [], "furniture": [], "block": [], "work": [], "signs": [], "ocean": ter.ocean,
+		"decor": [], "furniture": [], "block": [], "work": [], "signs": [], "ocean": ter.ocean, "dry": [],
 		"origin": -Vector2(n, n) * TILE / 2}
 	var items := []
 	_flatten(nd, cell, 1, [root], items, ctx, Vector2i.DOWN)
@@ -408,7 +409,7 @@ static func build_city(root, city, seed_value: int, env := {}) -> Dictionary:
 		walk[c.y * n + c.x] = 0
 	return {"n": n, "ground": ctx.ground, "walk": walk, "walls": ctx.walls, "floors": ctx.floors, "decor": decor,
 		"furniture": ctx.furniture, "items": items, "radius": n * TILE * 0.4, "origin": ctx.origin,
-		"town": town, "work": ctx.work, "signs": ctx.signs}
+		"town": town, "work": ctx.work, "signs": ctx.signs, "dry": ctx.dry}
 
 ## Суша и вода n*n: {land: 1 — суша, ocean: 1 — океан}. Вода не ближе 3 клеток к городу.
 static func _terrain(n: int, town: Rect2i, rng: RandomNumberGenerator, env: Dictionary) -> Dictionary:
@@ -800,7 +801,8 @@ static func _fishing(town: Rect2i, ctx: Dictionary, rng: RandomNumberGenerator) 
 			continue
 		for q in path:
 			_set_g(ctx, q, G.PATH)
-		_set_g(ctx, c, G.PATH)
+		_set_g(ctx, c, G.PIER)  # мостки начинаются на берегу
+		ctx.dry.append(c)
 		for q in pier:
 			_set_g(ctx, q, G.PIER)
 		piers.append(c)

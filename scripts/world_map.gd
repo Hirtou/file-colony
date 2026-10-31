@@ -401,6 +401,9 @@ func _add_terrain() -> void:
 	var n: int = world.n
 	var splat := Image.create_empty(n, n, false, Image.FORMAT_R8)
 	var water: Array[int] = []
+	var dry := {}  # клетки мостков на берегу
+	for c in world.get("dry", []):
+		dry[c.y * n + c.x] = true
 	var dist := PackedInt32Array()
 	dist.resize(n * n)
 	dist.fill(-1)
@@ -409,7 +412,7 @@ func _add_terrain() -> void:
 		var l := terrain_layer(code)
 		@warning_ignore("integer_division")  # номер клетки -> строка: деление нацело и нужно
 		splat.set_pixel(i % n, i / n, Color8(l, 0, 0))
-		if not is_water(code):
+		if not is_water(code) or dry.has(i):
 			dist[i] = 0
 			water.append(i)
 	# глубина воды: шагов до суши (обход в ширину), не дальше 6
@@ -433,6 +436,8 @@ func _add_terrain() -> void:
 	m.resize(n * n)
 	for i in n * n:
 		m[i] = 1.0 if is_water(world.ground[i]) else 0.0
+	for i in dry:
+		m[i] = 0.0  # начало мостков — на берегу
 	var h := m.duplicate()
 	for y in n:
 		for x in n:
