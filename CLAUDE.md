@@ -26,7 +26,8 @@
 
 # Файлы
 - scripts/game.gd — автозагрузка Game: режим (мои диски / песочница), настройки, кэш миров, буфер
-- scripts/menu.gd — главное меню; scripts/space.gd — космос; scripts/planet.gd + shaders/planet.gdshader — планета
+- scripts/menu.gd — главное меню (2D-планета: scripts/planet.gd + shaders/planet.gdshader)
+- scripts/space.gd — космос в 3D: камера-орбита, солнце, перелёт между дисками; scripts/globe.gd + shaders/globe.gdshader — 3D-планета
 - scripts/sun.gd, scripts/stars.gd — далёкое солнце и звёзды (параллакс)
 - scripts/fake_tree.gd — FakeTree.generate(seed) -> дерево Folder (выдуманное)
 - scripts/world_layout.gd — раскладка материка: деревни, дома, мебель, дороги

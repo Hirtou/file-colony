@@ -1,57 +1,197 @@
 class_name SpaceScene
 extends Node2D
-## Сцена «Космос»: две планеты-диска, наведение, приближение по клику.
+## Космос в 3D: планеты-диски висят на месте, камера летает вокруг выбранной — перетаскивание мышью
+## крутит её как угодно, колёсико — ближе/дальше. Вдали солнце (тоже шар). Внизу — выбор диска:
+## камера отлетает от одной планеты и подлетает к другой. «Войти» — нырок на материк.
 
 # Фейковые диски (реальный диск не читаем)
 const DISKS := [
 	{"name": "C:", "gb": 256},
 	{"name": "D:", "gb": 1024},
 ]
-const GAP := 140.0       # расстояние между планетами
-const ZOOM_TIME := 1.5   # секунды
-const DIM := Color(0.25, 0.25, 0.3)
-
-@onready var cam: Camera2D = $Camera
-@onready var stars: Node2D = $Stars
-@onready var label: Label = $UI/Label
-@onready var enter_btn: Button = $UI/Enter
+const GAP := 30.0           # расстояние между поверхностями планет
+const FLY_TIME := 2.6       # перелёт между планетами, с
+const SUN_DIR := Vector3(0.8, 0.12, -0.6)   # куда смотреть на солнце (от планет)
+const SUN_DIST := 700.0
+const VIEW_DIR := Vector3(0.45, 0.3, 1.0)    # откуда камера смотрит на планету: освещено ~40%, солнце справа за кадром
+const NEAR := 4.0                            # обычное расстояние камеры, в радиусах планеты
+const DRAG_PX := 6.0        # сдвиг мыши, после которого это вращение, а не клик
 
 const CONTINENT := preload("res://scenes/continent.tscn")
 var continent: Node = null  # открытый материк (вид сверху)
 
-var planets: Array[Planet] = []
-var target: Planet = null  # планета, к которой приблизились
-var busy := false          # идёт анимация
-const DRAG_PX := 6.0       # сдвиг мыши, после которого это вращение, а не клик
-var pressed: Planet = null # планета, на которой нажали левую кнопку
-var press_pos := Vector2.ZERO
-var dragging := false
-var base_zoom := Vector2.ONE  # масштаб общего вида (все планеты в кадре)
-var _planet_zoom := Vector2.ONE  # масштаб, когда приблизились к планете
+var planets: Array[Globe] = []
+var target: Globe = null    # планета, вокруг которой камера
+var busy := false           # идёт анимация
+var _world: Node3D
+var _wenv: WorldEnvironment
+var _env: Environment
+var _cam: Camera3D
+var _orbit := Basis()       # поворот камеры вокруг планеты
+var _focus := Vector3.ZERO
+var _dist := 10.0
+var _dist_goal := 10.0
+var _spin := Vector2.ZERO   # скорость вращения после броска мышью
+var _drag := false
+var _press := Vector2.ZERO
+var _moved := 0.0
+var _ui: Control
+var _enter: Button
+var _bar: HBoxContainer
+var _names := {}            # Globe -> Label с именем под планетой
 var _fade: ColorRect
 var _fade_text: Label
 
 ## Радиус растёт умеренно: корень 4-й степени от объёма.
 static func radius_for(gb: float) -> float:
-	return 110.0 * pow(gb / 256.0, 0.25)
+	return 5.0 * pow(gb / 256.0, 0.25)
 
-## Позиции планет в ряд по центру, без наложений.
+## Планеты в ряд вдоль x, по центру, без наложений.
 static func layout(disks: Array) -> Array:
 	var out := []
 	var x := 0.0
 	for d in disks:
 		var r := radius_for(d.gb)
-		out.append({"name": d.name, "gb": d.gb, "pos": Vector2(x + r, 0), "radius": r})
+		out.append({"name": d.name, "gb": d.gb, "pos": Vector3(x + r, 0, 0), "radius": r})
 		x += r * 2 + GAP
 	var shift := (x - GAP) / 2
 	for o in out:
-		o.pos = o.pos - Vector2(shift, 0)
+		o.pos -= Vector3(shift, 0, 0)
 	return out
 
 func _ready() -> void:
-	label.visible = false
 	Game.play_music("space")
-	enter_btn.pressed.connect(_dive)
+	_build_world()
+	_build_ui()
+	for info in layout(Game.disks):  # «Мои диски» или выдуманные диски песочницы
+		var p := Globe.new()
+		_world.add_child(p)
+		p.position = info.pos
+		p.setup(info.name, info.radius, info.gb)
+		p.set_sun((SUN_DIR.normalized() * SUN_DIST - p.position).normalized())
+		p.face_land(VIEW_DIR.normalized() * 1.6 + SUN_DIR.normalized())  # материк — на светлой стороне к камере
+		planets.append(p)
+		var l := Label.new()
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		l.add_theme_font_size_override("font_size", 20)
+		l.add_theme_color_override("font_outline_color", Color.BLACK)
+		l.add_theme_constant_override("outline_size", 6)
+		l.text = "%s\n%s" % [p.disk_name, Planet.format_size(p.disk_gb)]
+		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_ui.add_child(l)
+		_names[p] = l
+		var b := Button.new()
+		b.text = "  %s   %s  " % [p.disk_name, Planet.format_size(p.disk_gb)]
+		b.toggle_mode = true
+		b.custom_minimum_size.y = 44
+		b.add_theme_font_size_override("font_size", 18)
+		b.pressed.connect(_fly_to.bind(p))
+		_bar.add_child(b)
+	_select(planets[0])
+	_focus = target.position
+	_orbit = _view_basis()
+	_dist = target.radius * NEAR
+	_dist_goal = _dist
+	_update_cam()
+
+## Небо со звёздами, солнце вдали (шар и сияние), свет, камера.
+func _build_world() -> void:
+	_world = Node3D.new()
+	add_child(_world)
+	var sky_mat := ShaderMaterial.new()
+	sky_mat.shader = preload("res://shaders/space_sky.gdshader")
+	sky_mat.set_shader_parameter("sun_dir", SUN_DIR.normalized())
+	var sky := Sky.new()
+	sky.sky_material = sky_mat
+	sky.radiance_size = Sky.RADIANCE_SIZE_32
+	_env = Environment.new()
+	_env.background_mode = Environment.BG_SKY
+	_env.sky = sky
+	_env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	_env.ambient_light_color = Color(0.08, 0.09, 0.12)
+	_env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
+	_env.glow_enabled = true
+	_env.glow_intensity = 0.9
+	_env.glow_hdr_threshold = 1.2
+	_env.glow_blend_mode = Environment.GLOW_BLEND_MODE_ADDITIVE
+	_wenv = WorldEnvironment.new()
+	_wenv.environment = _env
+	_world.add_child(_wenv)
+	var light := DirectionalLight3D.new()  # для луны
+	light.light_energy = 1.3
+	_world.add_child(light)
+	light.look_at_from_position(SUN_DIR.normalized() * 10.0, Vector3.ZERO)
+	var sun_pos := SUN_DIR.normalized() * SUN_DIST
+	var sun := MeshInstance3D.new()
+	sun.mesh = Globe._sphere(34.0, 48, 24)
+	var sm := ShaderMaterial.new()
+	sm.shader = preload("res://shaders/sun3d.gdshader")
+	sun.material_override = sm
+	sun.position = sun_pos
+	_world.add_child(sun)
+	var corona := MeshInstance3D.new()
+	var quad := QuadMesh.new()
+	quad.size = Vector2(1400, 1400)  # сияние широкое — видно у края экрана, даже когда солнце за кадром
+	corona.mesh = quad
+	var cm := ShaderMaterial.new()
+	cm.shader = preload("res://shaders/corona.gdshader")
+	corona.material_override = cm
+	corona.position = sun_pos
+	corona.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_world.add_child(corona)
+	_cam = Camera3D.new()
+	_cam.fov = 55.0
+	_cam.near = 0.05
+	_cam.far = 3000.0
+	_world.add_child(_cam)
+	_cam.make_current()
+
+func _build_ui() -> void:
+	var layer := CanvasLayer.new()
+	add_child(layer)
+	_ui = Control.new()
+	_ui.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ui.theme = ContinentUI.make_theme()
+	layer.add_child(_ui)
+	var menu := Button.new()
+	menu.text = "Меню"
+	menu.position = Vector2(16, 16)
+	menu.add_theme_font_size_override("font_size", 18)
+	menu.pressed.connect(_to_menu)
+	_ui.add_child(menu)
+	_enter = Button.new()
+	_enter.text = "Войти"
+	_enter.add_theme_font_size_override("font_size", 22)
+	_enter.anchor_left = 1.0
+	_enter.anchor_right = 1.0
+	_enter.anchor_top = 0.5
+	_enter.anchor_bottom = 0.5
+	_enter.offset_left = -220
+	_enter.offset_right = -60
+	_enter.offset_top = -26
+	_enter.offset_bottom = 26
+	_enter.pressed.connect(_dive)
+	_ui.add_child(_enter)
+	# выбор диска внизу по центру
+	var bp := PanelContainer.new()
+	bp.anchor_left = 0.5
+	bp.anchor_right = 0.5
+	bp.anchor_top = 1.0
+	bp.anchor_bottom = 1.0
+	bp.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	bp.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	bp.offset_bottom = -16
+	_ui.add_child(bp)
+	_bar = HBoxContainer.new()
+	_bar.add_theme_constant_override("separation", 8)
+	bp.add_child(_bar)
+	var hint := Label.new()
+	hint.text = "Перетаскивание — крутить камеру · колёсико — ближе/дальше · ←/→ — другой диск"
+	hint.add_theme_font_size_override("font_size", 13)
+	hint.modulate.a = 0.55
+	hint.position = Vector2(16, 64)
+	_ui.add_child(hint)
 	# затемнение для нырка на планету и обратно (поверх всего)
 	var fl := CanvasLayer.new()
 	fl.layer = 20
@@ -69,122 +209,152 @@ func _ready() -> void:
 	_fade_text.add_theme_color_override("font_color", Color(1.0, 0.92, 0.75))
 	_fade_text.modulate.a = 0.0
 	fl.add_child(_fade_text)
-	var infos := layout(Game.disks)  # «Мои диски» или выдуманные диски песочницы
-	for info in infos:
-		var p := Planet.new()
-		add_child(p)
-		p.position = info.pos
-		p.setup(info.name, info.radius, info.gb)
-		planets.append(p)
-	# все планеты в кадре (в песочнице их до пяти)
-	var last: Dictionary = infos[-1]
-	var width: float = (last.pos.x + last.radius) * 2.0 + 80.0
-	var z := minf(1.0, get_viewport_rect().size.x / width)
-	base_zoom = Vector2(z, z)
-	cam.zoom = base_zoom
-	# кнопка в главное меню
-	var menu := Button.new()
-	menu.text = "Меню"
-	menu.position = Vector2(16, 16)
-	menu.add_theme_font_size_override("font_size", 18)
-	menu.pressed.connect(_to_menu)
-	$UI.add_child(menu)
 
 ## В главное меню.
 func _to_menu() -> void:
 	Game.switch(self, "res://scenes/menu.tscn")
 
-func _process(_delta: float) -> void:
-	# свет на планетах — от того места, где сейчас (далёкое) солнце на экране
-	var sun = $SunLayer/Sun
-	var ct := get_viewport().get_canvas_transform()
-	for p in planets:
-		p.set_sun(sun.center - ct * p.global_position)
-	# подсветка при наведении (только в космосе)
-	if busy or target != null or continent != null:
+## Вид на планету после перелёта: чуть сверху, солнце сбоку-сзади.
+static func _view_basis() -> Basis:
+	return Basis.looking_at(-VIEW_DIR.normalized(), Vector3.UP)
+
+func _select(p: Globe) -> void:
+	target = p
+	for i in planets.size():
+		planets[i].selected = planets[i] == p
+		(_bar.get_child(i) as Button).set_pressed_no_signal(planets[i] == p)
+
+func _update_cam() -> void:
+	_cam.transform = Transform3D(_orbit, _focus + _orbit.z * _dist)
+
+func _process(delta: float) -> void:
+	if continent != null:
 		return
-	var m := get_global_mouse_position()
+	if not busy:
+		# бросок мышью — камера ещё немного крутится; колёсико — плавно
+		if not _drag and _spin.length() > 0.001:
+			_rotate(_spin * delta)
+			_spin = _spin.lerp(Vector2.ZERO, 1.0 - exp(-3.0 * delta))
+		_dist = lerpf(_dist, _dist_goal, 1.0 - exp(-8.0 * delta))
+	_update_cam()
+	# наведение мыши на планету
+	var m := get_viewport().get_mouse_position()
+	var o := _cam.project_ray_origin(m)
+	var d := _cam.project_ray_normal(m)
+	var over := _planet_at(o, d)
 	for p in planets:
-		p.hovered = p.has_point(m)
+		p.hovered = p == over and not busy
+	# имена под другими планетами (выбранная — на кнопке внизу)
+	for p in planets:
+		var l: Label = _names[p]
+		var at := p.position - _cam.global_basis.y * p.radius * 1.18
+		l.visible = p != target and not _cam.is_position_behind(at) and not busy
+		if l.visible:
+			l.size = Vector2.ZERO
+			l.position = _cam.unproject_position(at) - Vector2(l.get_combined_minimum_size().x / 2.0, 0)
+
+func _planet_at(o: Vector3, d: Vector3) -> Globe:
+	var best: Globe = null
+	var bt := INF
+	for p in planets:
+		var t := p.hit(o, d)
+		if t > 0.0 and t < bt:
+			bt = t
+			best = p
+	return best
+
+## Повернуть камеру вокруг планеты: v.x — вокруг её вертикали, v.y — вокруг горизонтали (рад).
+func _rotate(v: Vector2) -> void:
+	_orbit = Basis(_orbit.y, -v.x) * _orbit
+	_orbit = Basis(_orbit.x, -v.y) * _orbit
+	_orbit = _orbit.orthonormalized()
+
+## Сколько радиан поворота на пиксель: вблизи медленнее.
+func _rad_per_px() -> float:
+	return 0.0055 * clampf((_dist - target.radius) / (target.radius * 2.4), 0.15, 1.5)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if busy or continent != null:
 		return
-	# левая кнопка: сдвиг больше DRAG_PX = вращение, иначе клик
-	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
-		if event.pressed:
-			press_pos = event.position
-			pressed = _planet_at(get_global_mouse_position())
-			dragging = false
-		else:
-			if dragging:
-				pressed.dragging = false
-			elif pressed != null and target == null:
-				_zoom_to(pressed)
-			pressed = null
-			dragging = false
+	if event is InputEventMouseButton:
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			if event.pressed:
+				var k := 1.0 / 1.12 if event.button_index == MOUSE_BUTTON_WHEEL_UP else 1.12
+				_dist_goal = clampf(_dist_goal * k, target.radius * 1.35, target.radius * 9.0)
+			return
+		if event.button_index == MOUSE_BUTTON_LEFT or event.button_index == MOUSE_BUTTON_RIGHT:
+			if event.pressed:
+				_drag = true
+				_press = event.position
+				_moved = 0.0
+				_spin = Vector2.ZERO
+			else:
+				_drag = false
+				if _moved < DRAG_PX and event.button_index == MOUSE_BUTTON_LEFT:
+					var p := _planet_at(_cam.project_ray_origin(event.position), _cam.project_ray_normal(event.position))
+					if p != null and p != target:
+						_fly_to(p)
+			return
+	if event is InputEventMouseMotion and _drag:
+		_moved += event.relative.length()
+		if _moved >= DRAG_PX:
+			var v: Vector2 = event.relative * _rad_per_px()
+			_rotate(v)
+			_spin = _spin.lerp(v / maxf(get_process_delta_time(), 0.001), 0.5)
 		return
-	if event is InputEventMouseMotion and pressed != null:
-		if not dragging and event.position.distance_to(press_pos) > DRAG_PX:
-			dragging = true
-			pressed.dragging = true
-		if dragging:
-			pressed.drag(event.relative / (pressed.radius * cam.zoom.x))
-		return
-	var right: bool = event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_RIGHT
-	if target != null and (right or event.is_action_pressed("ui_cancel")):
-		_zoom_back()
-	elif target == null and event.is_action_pressed("ui_cancel"):
+	if event is InputEventKey and event.pressed and (event.keycode == KEY_LEFT or event.keycode == KEY_RIGHT):
+		var i := planets.find(target) + (1 if event.keycode == KEY_RIGHT else -1)
+		_fly_to(planets[(i + planets.size()) % planets.size()])
+	elif event.is_action_pressed("ui_cancel"):
 		_to_menu()
+	elif event.is_action_pressed("ui_accept"):
+		_dive()
 
-## Планета под мышью (после приближения — только выбранная).
-func _planet_at(m: Vector2) -> Planet:
-	for p in planets:
-		if (target == null or p == target) and p.has_point(m):
-			return p
-	return null
-
-## Камера едет к планете и приближает, остальное темнеет.
-func _zoom_to(p: Planet) -> void:
-	target = p
+## Перелёт к другой планете: камера отлетает назад, поворачивается к виду «солнце сбоку» и подлетает.
+func _fly_to(p: Globe) -> void:
+	if busy or p == target:
+		_select(target)  # кнопку текущего диска не отжимаем
+		return
 	busy = true
-	p.hovered = false
-	p.selected = true
-	p.pulse()
-	# в кадр: планета + подпись под ней (~60 px), занимают 80% высоты экрана
-	var z := get_viewport_rect().size.y * 0.8 / (p.radius * 2 + 70)
-	_planet_zoom = Vector2(z, z)
-	var tw := _new_tween()
-	tw.tween_property(cam, "position", p.position + Vector2(0, 30), ZOOM_TIME)
-	tw.tween_property(cam, "zoom", Vector2(z, z), ZOOM_TIME)
-	tw.tween_property(stars, "modulate", DIM, ZOOM_TIME)
-	for o in planets:
-		if o != p:
-			tw.tween_property(o, "modulate", DIM, ZOOM_TIME)
-	tw.chain().tween_callback(_on_zoomed)
+	_spin = Vector2.ZERO
+	_enter.visible = false
+	var a_focus := _focus
+	var b_focus := p.position
+	var a_dist := _dist
+	var b_dist := p.radius * NEAR
+	var a_q := _orbit.get_rotation_quaternion()
+	var b_q := _view_basis().get_rotation_quaternion()
+	var span := a_focus.distance_to(b_focus)
+	_select(p)
+	var tw := create_tween()
+	tw.tween_method(func(t: float):
+		var e := smoothstep(0.0, 1.0, t)
+		_focus = a_focus.lerp(b_focus, e)
+		_dist = lerpf(a_dist, b_dist, e) + sin(PI * t) * span * 0.75
+		_orbit = Basis(a_q.slerp(b_q, smoothstep(0.0, 0.55, t))),
+		0.0, 1.0, FLY_TIME)
+	tw.tween_callback(func():
+		busy = false
+		_dist_goal = _dist
+		_enter.visible = true)
 
-func _on_zoomed() -> void:
-	busy = false  # подпись уже под планетой, отдельный UI-текст не нужен
-	enter_btn.visible = true
-
-## «Войти» с анимацией: планета раскручивается, камера ныряет в неё, экран темнеет;
+## «Войти» с анимацией: облака несутся, камера ныряет к поверхности, экран темнеет;
 ## пока строится мир — надпись «Посадка…», потом материк проявляется и камера «садится».
 func _dive() -> void:
 	if busy or target == null:
 		return
 	busy = true
-	enter_btn.visible = false
+	_enter.visible = false
 	target.spin_up()
+	_fade_text.text = I18n.t("Посадка на «%s»…") % target.disk_name
 	var tw := create_tween().set_parallel()
-	tw.tween_property(cam, "zoom", cam.zoom * 6.0, 1.3).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_IN)
-	tw.tween_property(cam, "position", target.position, 0.9).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(self, "_dist", target.radius * 1.04, 1.3).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_IN)
 	tw.tween_property(_fade, "color:a", 1.0, 0.45).set_delay(0.9)
 	tw.tween_property(_fade_text, "modulate:a", 1.0, 0.3).set_delay(1.0)
-	_fade_text.text = I18n.t("Посадка на «%s»…") % target.disk_name
 	tw.chain().tween_callback(_land)
 
 func _land() -> void:
-	_enter()
+	_open_continent()
 	if continent.is_built:
 		_landed()
 	else:
@@ -202,7 +372,7 @@ func _landed() -> void:
 	tw.tween_property(_fade_text, "modulate:a", 0.0, 0.3)
 
 ## «Войти»: карта материка сверху вместо космоса.
-func _enter() -> void:
+func _open_continent() -> void:
 	continent = CONTINENT.instantiate()
 	continent.disk_name = target.disk_name
 	continent.disk_gb = target.disk_gb
@@ -210,7 +380,7 @@ func _enter() -> void:
 	_show_space(false)
 	add_child(continent)
 
-## Назад в космос (к той же приближенной планете): экран темнеет, камера «взлетает» от планеты.
+## Назад в космос (к той же планете): экран темнеет, камера «взлетает» от поверхности.
 func _leave() -> void:
 	if busy:
 		return
@@ -224,64 +394,42 @@ func _leave_now() -> void:
 	continent = null
 	_show_space(true)
 	Game.play_music("space")
-	cam.make_current()
-	cam.position = target.position + Vector2(0, 30)
-	cam.zoom = _planet_zoom * 5.0
+	_cam.make_current()
 	target.spin_up()
+	_dist = target.radius * 1.08
+	_dist_goal = target.radius * NEAR
 	var tw := create_tween().set_parallel()
-	tw.tween_property(cam, "zoom", _planet_zoom, 1.1).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
+	tw.tween_property(self, "_dist", _dist_goal, 1.4).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
 	tw.tween_property(_fade, "color:a", 0.0, 0.5)
 	tw.chain().tween_callback(func():
 		busy = false
-		enter_btn.visible = true)
+		_enter.visible = true)
 
 func _show_space(v: bool) -> void:
-	stars.visible = v
-	$SunLayer.visible = v
-	$UI.visible = v
-	for p in planets:
-		p.visible = v
+	_world.visible = v
+	_wenv.environment = _env if v else null  # на материке звёздное небо не нужно
+	_ui.visible = v
 
-## Для скриншотов: space — общий вид; иначе сразу на материк первой планеты (map / city / house ...).
+## Для скриншотов: space — вид на C:; planet — перелёт к последней; fly — середина перелёта;
+## dive — середина нырка; sun — камера повёрнута к солнцу; иначе сразу на материк (map / city / house ...).
 func debug_view(view: String) -> void:
-	if view == "space":
-		return
-	if view == "planet" or view == "dive":
-		# выбранная планета (кольцо, луна) / середина нырка
-		_zoom_to(planets[-1])
-		for t in get_tree().get_processed_tweens():
-			t.custom_step(5.0)
-		if view == "dive":
+	match view:
+		"space":
+			return
+		"planet", "fly":
+			_fly_to(planets[-1])
+			_step(FLY_TIME * (0.5 if view == "fly" else 1.1))
+		"dive":
 			_dive()
-			for t in get_tree().get_processed_tweens():
-				t.custom_step(1.05)
-		return
-	target = planets[0]
-	_enter()
-	continent.debug_view(view)
+			_step(1.05)
+		"sun":
+			_rotate(Vector2(0.75, 0.05))
+			_dist_goal = target.radius * 4.5
+			_dist = _dist_goal
+		_:
+			_open_continent()
+			continent.debug_view(view)
 
-## Плавно назад в космос.
-func _zoom_back() -> void:
-	if pressed != null:
-		pressed.dragging = false
-	pressed = null
-	dragging = false
-	busy = true
-	label.visible = false
-	enter_btn.visible = false
-	var tw := _new_tween()
-	tw.tween_property(cam, "position", Vector2.ZERO, ZOOM_TIME)
-	tw.tween_property(cam, "zoom", base_zoom, ZOOM_TIME)
-	tw.tween_property(stars, "modulate", Color.WHITE, ZOOM_TIME)
-	for o in planets:
-		tw.tween_property(o, "modulate", Color.WHITE, ZOOM_TIME)
-	if target:
-		target.selected = false
-	tw.chain().tween_callback(_on_back)
-
-func _on_back() -> void:
-	target = null
-	busy = false
-
-func _new_tween() -> Tween:
-	return create_tween().set_parallel().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
+func _step(sec: float) -> void:
+	for t in get_tree().get_processed_tweens():
+		t.custom_step(sec)
