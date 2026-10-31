@@ -64,6 +64,35 @@ func _process(_delta: float) -> void:
 	if _fps.visible:
 		_fps.text = "FPS %d" % Engine.get_frames_per_second()
 
+## F12 — снимок экрана в папку игры (user://screenshots), в любой сцене.
+func _input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F12:
+		get_viewport().set_input_as_handled()
+		_shot.call_deferred()
+
+func _shot() -> void:
+	await RenderingServer.frame_post_draw
+	var img := get_viewport().get_texture().get_image()
+	DirAccess.make_dir_recursive_absolute("user://screenshots")
+	var t := Time.get_datetime_dict_from_system()
+	var path := "user://screenshots/file_colony_%04d%02d%02d_%02d%02d%02d.png" % [t.year, t.month, t.day, t.hour, t.minute, t.second]
+	if img.save_png(path) != OK:
+		return
+	var l := Label.new()
+	l.text = I18n.t("Снимок сохранён: %s") % ProjectSettings.globalize_path(path)
+	l.anchor_top = 1.0
+	l.anchor_bottom = 1.0
+	l.offset_left = 16
+	l.offset_top = -100
+	l.add_theme_font_size_override("font_size", 13)
+	l.add_theme_color_override("font_outline_color", Color.BLACK)
+	l.add_theme_constant_override("outline_size", 4)
+	_fps.get_parent().add_child(l)
+	var tw := l.create_tween()
+	tw.tween_interval(2.5)
+	tw.tween_property(l, "modulate:a", 0.0, 0.8)
+	tw.tween_callback(l.queue_free)
+
 # --- режимы ---
 
 func use_my_disks() -> void:

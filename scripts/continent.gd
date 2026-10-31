@@ -144,6 +144,15 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		ui.focus_search()
 		return
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode == KEY_F1:
+		get_viewport().set_input_as_handled()
+		ui.help.visible = not ui.help.visible
+		return
+	if ui.help.visible:
+		if event.is_action_pressed("ui_cancel"):
+			get_viewport().set_input_as_handled()
+			ui.help.hide()
+		return
 	if ui.stats.visible:
 		# открыта статистика: Esc или I — закрыть
 		if event.is_action_pressed("ui_cancel") or (event is InputEventKey and event.pressed and event.keycode == KEY_I):
@@ -649,6 +658,9 @@ func debug_view(view: String) -> void:
 				best = it
 	if view == "stats":
 		_open_stats()
+		return
+	if view == "help":
+		ui.help.show()
 		return
 	if view == "rain":
 		# день и час, когда льёт: камера на улицы с жителями

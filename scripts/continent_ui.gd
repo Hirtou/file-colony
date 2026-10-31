@@ -14,6 +14,7 @@ signal type_chosen(t: int)
 signal stats_pressed
 
 const STATS := preload("res://scripts/stats_view.gd")
+const HELP := preload("res://scripts/help_view.gd")
 
 const BG := Color(0.065, 0.075, 0.1, 0.88)
 const TEXT := Color(0.92, 0.93, 0.96)
@@ -55,6 +56,7 @@ var _legend_title: Button
 static var legend_open := false  # помнится, пока игра запущена
 var minimap: Minimap
 var stats: PanelContainer  # окно статистики (stats_view.gd)
+var help: PanelContainer   # справка F1 (help_view.gd)
 var _legend_panel: PanelContainer
 var _files_rows := 0
 
@@ -254,6 +256,12 @@ func _ready() -> void:
 	st.tooltip_text = "Статистика города: типы файлов, самые большие файлы и дома  (I)"
 	st.pressed.connect(stats_pressed.emit)
 	row.add_child(st)
+	var hb := Button.new()
+	hb.text = "?"
+	hb.tooltip_text = "Управление и горячие клавиши  (F1)"
+	hb.custom_minimum_size.x = 34
+	hb.pressed.connect(func(): help.visible = not help.visible)
+	row.add_child(hb)
 
 	# легенда справа снизу
 	var br := _panel(root, Vector2(1, 1), Vector2(-12, -12))
@@ -365,6 +373,9 @@ func _ready() -> void:
 	stats = STATS.new()
 	stats.visibility_changed.connect(func(): shade.visible = stats.visible or tree.visible)
 	root.add_child(stats)
+	help = HELP.new()
+	help.visibility_changed.connect(func(): shade.visible = help.visible or stats.visible or tree.visible)
+	root.add_child(help)
 
 	# подсказка у мыши
 	_tip = PanelContainer.new()
