@@ -38,6 +38,7 @@ static func look(file) -> Dictionary:
 		"hat": 0 if rng.randf() < 0.4 else rng.randi_range(1, RANDOM_HATS),
 		"hat_color": HAT_COLORS[rng.randi_range(0, HAT_COLORS.size() - 1)],
 		"chest": file.type == FakeTree.Type.ARCHIVE,  # архив носит сундучок за спиной
+		"item": file.type,                            # предмет в руке — по типу файла
 	}
 
 ## Нарисовать жителя в клетке с центром p (u — размер клетки). facing — Residents.Facing.
@@ -52,6 +53,88 @@ static func draw(ci: CanvasItem, p: Vector2, u: float, lk: Dictionary, facing: i
 		_chest(ci, p, u, facing, walk, dim)
 	if carry and not back:
 		_box(ci, p, u, lk, facing, walk, dim)
+	elif detail and not back and lk.has("item"):
+		_held(ci, p, u, lk, facing, walk, dim)
+
+## Предмет в руке по типу файла: картина, лист, хлопушка, нота, шестерёнка, таблица, график,
+## {скобки}, кубик, буква, книга, дискета. Архив — сундучок на спине, «другое» — без предмета.
+static func _held(ci: CanvasItem, p: Vector2, u: float, lk: Dictionary, facing: int, walk: float, dim: bool) -> void:
+	var t: int = lk.item
+	if t == FakeTree.Type.ARCHIVE or t == FakeTree.Type.OTHER:
+		return
+	var bob := -absf(sin(walk * TAU)) * u * 0.04
+	var s := -1.0 if facing == Residents.Facing.LEFT else 1.0
+	var c := p + Vector2(s * u * 0.3, u * 0.2 + bob)
+	var k := u * 0.11  # половина размера предмета
+	var col: Color = WorldMap.TYPE_COLORS[t]
+	var o := u * 0.02
+	var paper := Color(0.95, 0.93, 0.86)
+	var r := Rect2(c - Vector2(k, k), Vector2(k, k) * 2)
+	match t:
+		FakeTree.Type.IMAGE:  # картина в рамке
+			ci.draw_rect(r.grow(o), _d(Color(0.55, 0.38, 0.18), dim))
+			ci.draw_rect(r.grow(-o), _d(Color(0.55, 0.78, 0.95), dim))
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-k, k * 0.8), c + Vector2(-k * 0.2, -k * 0.2), c + Vector2(k * 0.5, k * 0.8)]), _d(col.darkened(0.2), dim))
+		FakeTree.Type.DOC:  # лист со строчками
+			ci.draw_rect(Rect2(c - Vector2(k * 0.8, k), Vector2(k * 1.6, k * 2)).grow(o), _d(OUTLINE, dim))
+			ci.draw_rect(Rect2(c - Vector2(k * 0.8, k), Vector2(k * 1.6, k * 2)), _d(paper, dim))
+			for i in 3:
+				ci.draw_line(c + Vector2(-k * 0.5, -k * 0.5 + i * k * 0.5), c + Vector2(k * 0.5, -k * 0.5 + i * k * 0.5), _d(col, dim), o)
+		FakeTree.Type.VIDEO:  # кинохлопушка
+			ci.draw_rect(r.grow(o), _d(OUTLINE, dim))
+			ci.draw_rect(r, _d(Color(0.15, 0.15, 0.17), dim))
+			for i in 3:
+				ci.draw_rect(Rect2(c + Vector2(-k + i * k * 0.7, -k), Vector2(k * 0.35, k * 0.45)), _d(paper, dim))
+		FakeTree.Type.MUSIC:  # нота
+			_ellipse(ci, c + Vector2(-k * 0.3, k * 0.6), Vector2(k * 0.5, k * 0.38), _d(OUTLINE, dim))
+			ci.draw_line(c + Vector2(k * 0.15, k * 0.6), c + Vector2(k * 0.15, -k), _d(OUTLINE, dim), o * 1.5)
+			ci.draw_line(c + Vector2(k * 0.15, -k), c + Vector2(k * 0.8, -k * 0.5), _d(OUTLINE, dim), o * 1.5)
+		FakeTree.Type.PROGRAM:  # шестерёнка
+			for i in 8:
+				var a := TAU * i / 8.0
+				ci.draw_line(c, c + Vector2.from_angle(a) * k * 1.1, _d(col.darkened(0.3), dim), k * 0.45)
+			ci.draw_circle(c, k * 0.75, _d(col, dim))
+			ci.draw_circle(c, k * 0.3, _d(OUTLINE, dim))
+		FakeTree.Type.TABLE:  # таблица в клеточку
+			ci.draw_rect(r.grow(o), _d(OUTLINE, dim))
+			ci.draw_rect(r, _d(paper, dim))
+			ci.draw_rect(Rect2(r.position, Vector2(r.size.x, k * 0.6)), _d(col, dim))
+			for i in 2:
+				ci.draw_line(c + Vector2(-k + (i + 1) * k * 0.66, -k), c + Vector2(-k + (i + 1) * k * 0.66, k), _d(col.darkened(0.3), dim), o * 0.7)
+				ci.draw_line(c + Vector2(-k, -k * 0.2 + i * k * 0.6), c + Vector2(k, -k * 0.2 + i * k * 0.6), _d(col.darkened(0.3), dim), o * 0.7)
+		FakeTree.Type.SLIDES:  # слайд с графиком
+			ci.draw_rect(r.grow(o), _d(OUTLINE, dim))
+			ci.draw_rect(r, _d(paper, dim))
+			for i in 3:
+				var hgt := k * (0.6 + i * 0.5)
+				ci.draw_rect(Rect2(c + Vector2(-k * 0.7 + i * k * 0.55, k * 0.8 - hgt), Vector2(k * 0.35, hgt)), _d(col, dim))
+		FakeTree.Type.CODE:  # { } на тёмной табличке
+			ci.draw_rect(r.grow(o), _d(OUTLINE, dim))
+			ci.draw_rect(r, _d(Color(0.12, 0.14, 0.18), dim))
+			for sx in [-1.0, 1.0]:
+				ci.draw_polyline(PackedVector2Array([c + Vector2(sx * k * 0.2, -k * 0.6), c + Vector2(sx * k * 0.6, 0), c + Vector2(sx * k * 0.2, k * 0.6)]), _d(col, dim), o * 1.2)
+		FakeTree.Type.MODEL:  # кубик
+			var top := PackedVector2Array([c + Vector2(0, -k), c + Vector2(k, -k * 0.5), c + Vector2(0, 0), c + Vector2(-k, -k * 0.5)])
+			ci.draw_colored_polygon(top, _d(col.lightened(0.3), dim))
+			ci.draw_colored_polygon(PackedVector2Array([c + Vector2(-k, -k * 0.5), c, c + Vector2(0, k), c + Vector2(-k, k * 0.5)]), _d(col, dim))
+			ci.draw_colored_polygon(PackedVector2Array([c, c + Vector2(k, -k * 0.5), c + Vector2(k, k * 0.5), c + Vector2(0, k)]), _d(col.darkened(0.3), dim))
+		FakeTree.Type.FONT:  # буква «A» на табличке
+			ci.draw_rect(r.grow(o), _d(OUTLINE, dim))
+			ci.draw_rect(r, _d(paper, dim))
+			ci.draw_polyline(PackedVector2Array([c + Vector2(-k * 0.6, k * 0.7), c + Vector2(0, -k * 0.7), c + Vector2(k * 0.6, k * 0.7)]), _d(OUTLINE, dim), o * 1.3)
+			ci.draw_line(c + Vector2(-k * 0.3, k * 0.15), c + Vector2(k * 0.3, k * 0.15), _d(OUTLINE, dim), o * 1.3)
+		FakeTree.Type.BOOK:  # книга
+			ci.draw_rect(Rect2(c - Vector2(k * 0.85, k), Vector2(k * 1.7, k * 2)).grow(o), _d(OUTLINE, dim))
+			ci.draw_rect(Rect2(c - Vector2(k * 0.85, k), Vector2(k * 1.7, k * 2)), _d(col, dim))
+			ci.draw_rect(Rect2(c + Vector2(-k * 0.85, -k), Vector2(k * 0.3, k * 2)), _d(col.darkened(0.35), dim))
+			ci.draw_line(c + Vector2(-k * 0.2, -k * 0.4), c + Vector2(k * 0.55, -k * 0.4), _d(Color(0.9, 0.75, 0.35), dim), o)
+		FakeTree.Type.SAVE:  # дискета
+			ci.draw_rect(r.grow(o), _d(OUTLINE, dim))
+			ci.draw_rect(r, _d(col, dim))
+			ci.draw_rect(Rect2(c + Vector2(-k * 0.5, -k), Vector2(k, k * 0.6)), _d(Color(0.8, 0.82, 0.85), dim))
+			ci.draw_rect(Rect2(c + Vector2(-k * 0.6, k * 0.15), Vector2(k * 1.2, k * 0.8)), _d(paper, dim))
+	# рука держит предмет
+	_outlined_ellipse(ci, c + Vector2(-s * k * 0.9, k * 0.5), Vector2.ONE * u * 0.05, u * 0.022, _d(lk.skin, dim), dim)
 
 ## Сундучок архива на спине.
 static func _chest(ci: CanvasItem, p: Vector2, u: float, facing: int, walk: float, dim: bool) -> void:

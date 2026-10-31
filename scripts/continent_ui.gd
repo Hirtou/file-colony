@@ -26,6 +26,13 @@ var _tip_label: Label
 var _planet: Label
 var _search: LineEdit
 var _results: VBoxContainer
+var _results_scroll: ScrollContainer
+var _found_label: Label
+var _f_type: OptionButton
+var _f_size: OptionButton
+var _f_city: OptionButton
+const SIZE_NAMES := ["до 1 МБ", "1–100 МБ", "100 МБ–1 ГБ", "больше 1 ГБ"]
+const SIZE_LIMITS := [[0, 1 << 20], [1 << 20, 100 << 20], [100 << 20, 1 << 30], [1 << 30, 1 << 62]]
 var _clock: Label
 var _loading: Label
 var _speed: Button
@@ -38,6 +45,7 @@ var _clip_name: Label
 var _clip_title: Label
 var tree: FamilyTree   # вкладка «Семейное древо»
 var _type_rows: Array = []
+var arrow: EdgeArrow   # стрелка к выбранному за краем экрана
 
 ## Житель крупно (модель файла в буфере обмена).
 class PawnView extends Control:
@@ -48,6 +56,41 @@ class PawnView extends Control:
 	func _draw() -> void:
 		if not look.is_empty():
 			Pawn.draw(self, size / 2 + Vector2(0, 2), 60.0, look, Residents.Facing.DOWN, 0.0, false, true)
+
+## Стрелка у края экрана к выбранному, когда он вне кадра; клик — лететь к нему.
+class EdgeArrow extends Control:
+	signal pressed
+	var angle := 0.0
+	var label := ""
+	var _t := 0.0
+	func _init() -> void:
+		size = Vector2(64, 64)
+		pivot_offset = size / 2
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
+		visible = false
+	func _process(delta: float) -> void:
+		if visible:
+			_t += delta
+			queue_redraw()
+	func _draw() -> void:
+		var c := size / 2
+		var d := Vector2.from_angle(angle)
+		var push := d * (2.0 + 3.0 * sin(_t * 6.0))  # подталкивает в сторону цели
+		draw_circle(c + push, 22, Color(0.1, 0.08, 0.05, 0.85))
+		draw_arc(c + push, 22, 0, TAU, 32, Color(1.0, 0.85, 0.4), 2.0, true)
+		var n := d.orthogonal()
+		draw_colored_polygon(PackedVector2Array([c + push + d * 15, c + push - d * 8 + n * 10, c + push - d * 3, c + push - d * 8 - n * 10]),
+			Color(1.0, 0.85, 0.4))
+		var font := ThemeDB.fallback_font
+		var w := font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
+		var tp := c + push - d * 36 + Vector2(-w / 2, 4)
+		draw_string_outline(font, tp, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, 4, Color(0, 0, 0, 0.8))
+		draw_string(font, tp, label, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1.0, 0.92, 0.7))
+	func _gui_input(e: InputEvent) -> void:
+		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
+			pressed.emit()
+			accept_event()
 
 ## Цветная точка для легенды.
 class Dot extends Control:
@@ -83,9 +126,26 @@ func _ready() -> void:
 	_search.text_changed.connect(search_changed.emit)
 	_search.text_submitted.connect(func(_t): if _results.get_child_count() > 0: result_chosen.emit(0))
 	sv.add_child(_search)
+	# фильтры: тип, размер, город (можно искать и без текста — только по фильтрам)
+	var fr := HBoxContainer.new()
+	fr.add_theme_constant_override("separation", 4)
+	sv.add_child(fr)
+	_f_type = _option(fr, ["Все типы"] + FakeTree.TYPE_NAMES)
+	_f_size = _option(fr, ["Любой размер"] + SIZE_NAMES)
+	_f_city = _option(fr, ["Все города"])
+	_found_label = Label.new()
+	_found_label.add_theme_font_size_override("font_size", 12)
+	_found_label.modulate.a = 0.75
+	_found_label.visible = false
+	sv.add_child(_found_label)
+	_results_scroll = ScrollContainer.new()
+	_results_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_results_scroll.custom_minimum_size = Vector2(330, 0)
+	sv.add_child(_results_scroll)
 	_results = VBoxContainer.new()
+	_results.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_results.add_theme_constant_override("separation", 1)
-	sv.add_child(_results)
+	_results_scroll.add_child(_results)
 
 	# информация справа
 	_info = _panel(root, Vector2(1, 0), Vector2(-12, 12))
@@ -145,6 +205,11 @@ func _ready() -> void:
 	title.add_theme_font_size_override("font_size", 12)
 	title.modulate.a = 0.7
 	leg.add_child(title)
+	var grid := GridContainer.new()  # типов много — в две колонки
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 0)
+	leg.add_child(grid)
 	for t in FakeTree.TYPE_NAMES.size():
 		var line := HBoxContainer.new()
 		line.add_child(Dot.new(WorldMap.TYPE_COLORS[t]))
@@ -164,7 +229,7 @@ func _ready() -> void:
 		b.add_theme_color_override("font_hover_color", Color(1.0, 0.9, 0.55))
 		b.pressed.connect(type_chosen.emit.bind(t))
 		line.add_child(b)
-		leg.add_child(line)
+		grid.add_child(line)
 		_type_rows.append(line)
 
 	# буфер обмена над «Назад»: скопированный житель
@@ -204,6 +269,9 @@ func _ready() -> void:
 	_menu = PopupMenu.new()
 	_menu.id_pressed.connect(menu_chosen.emit)
 	root.add_child(_menu)
+
+	arrow = EdgeArrow.new()
+	root.add_child(arrow)
 
 	# семейное древо — поверх всего, кроме подсказки; под ним затемнение
 	var shade := ColorRect.new()
@@ -378,8 +446,37 @@ func mark_file(i: int) -> void:
 	for k in _files.get_child_count():
 		_files.get_child(k).modulate = Color(1.0, 0.9, 0.4) if k == i else Color.WHITE
 
-## Найденное: rows — [[текст, цвет точки], ...]; клик по строке — result_chosen(i).
-func show_results(rows: Array) -> void:
+func _option(parent: Control, names: Array) -> OptionButton:
+	var o := OptionButton.new()
+	for n in names:
+		o.add_item(n)
+	o.add_theme_font_size_override("font_size", 12)
+	o.fit_to_longest_item = false
+	o.custom_minimum_size.x = 100
+	o.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	o.item_selected.connect(func(_i): search_changed.emit(_search.text))
+	parent.add_child(o)
+	return o
+
+## Города для фильтра поиска.
+func set_cities(names: Array) -> void:
+	_f_city.clear()
+	_f_city.add_item("Все города")
+	for n in names:
+		_f_city.add_item(n)
+
+## Выбранные фильтры: type (-1 — любой), size (-1 — любой; иначе индекс SIZE_LIMITS), city (-1 — любой).
+func filters() -> Dictionary:
+	return {"type": _f_type.selected - 1, "size": _f_size.selected - 1, "city": _f_city.selected - 1}
+
+## Найденное: rows — [[текст, цвет точки], ...]; клик по строке — result_chosen(i). total — сколько всего нашлось.
+func show_results(rows: Array, total := -1) -> void:
+	_found_label.visible = total >= 0
+	if total == 0:
+		_found_label.text = "Ничего не нашлось"
+	elif total > 0:
+		_found_label.text = "Найдено: %d%s — подсвечены на карте" % [total, " (показаны первые %d)" % rows.size() if rows.size() < total else ""]
+	_results_scroll.custom_minimum_size.y = mini(rows.size(), 10) * 25
 	for c in _results.get_children():
 		c.queue_free()
 	for i in rows.size():
@@ -406,7 +503,10 @@ func release_search() -> void:
 
 func clear_search() -> void:
 	_search.text = ""
+	for o in [_f_type, _f_size, _f_city]:
+		o.select(0)
 	show_results([])
+	search_changed.emit("")
 	release_search()
 
 ## Меню правой кнопки: entries — [[текст, id], ...]; id < 0 — заголовок (не нажимается).
@@ -441,6 +541,22 @@ func set_clipboard(file, cut := false) -> void:
 	_clip_pawn.look = Pawn.look(file)
 	_clip_pawn.queue_redraw()
 	_clip_name.text = "%s  ·  %s" % [file.name, FakeTree.format_size(file.size)]
+
+## Стрелка к точке экрана at (Vector2.INF — спрятать): видна, только если точка за краем.
+func point_arrow(at: Vector2, text: String) -> void:
+	var vp: Vector2 = arrow.get_viewport_rect().size
+	var inner := Rect2(Vector2(60, 60), vp - Vector2(120, 120))
+	if not at.is_finite() or inner.has_point(at) or tree.visible:
+		arrow.visible = false
+		return
+	var c := vp / 2
+	var d := (at - c).normalized()
+	var half := vp / 2 - Vector2(70, 70)
+	var k := minf(half.x / maxf(absf(d.x), 0.001), half.y / maxf(absf(d.y), 0.001))
+	arrow.position = c + d * k - arrow.size / 2
+	arrow.angle = d.angle()
+	arrow.label = text
+	arrow.visible = true
 
 ## Подсветить выбранный тип в легенде (-1 — ни один).
 func mark_type(t: int) -> void:

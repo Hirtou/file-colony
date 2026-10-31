@@ -13,6 +13,13 @@ const TYPE_COLORS := [
 	Color(0.95, 0.60, 0.20),  # архив
 	Color(0.95, 0.85, 0.25),  # программа
 	Color(0.60, 0.60, 0.62),  # другое
+	Color(0.20, 0.70, 0.55),  # таблица
+	Color(0.95, 0.45, 0.65),  # презентация
+	Color(0.35, 0.85, 0.90),  # код
+	Color(0.80, 0.55, 0.35),  # 3D-модель
+	Color(0.85, 0.85, 0.95),  # шрифт
+	Color(0.55, 0.35, 0.25),  # книга
+	Color(0.55, 0.65, 0.20),  # сохранение
 ]
 const SEA := Color(0.16, 0.25, 0.3)
 const SHALLOW := Color(0.27, 0.38, 0.4)
@@ -32,27 +39,53 @@ var items: Array = []
 var by_folder := {}          # Folder -> item
 var land_rect := Rect2()     # где суша (мир. координаты) — дальше камера не уходит
 var type_filter := -1        # показать на карте файлы одного типа (-1 — выкл)
-var _pins: Array = []        # [дом, сколько там файлов нужного типа]
+var _hl := {}                # подсвеченные файлы (поиск или тип) -> true
+var _hl_color := Color.WHITE
+var _pins: Array = []        # [дом, сколько там подсвеченных файлов]
 
-## Выбрать тип файлов для поиска на карте (-1 — снять). Возвращает [файлов, домов].
-func set_type_filter(t: int) -> Vector2i:
-	type_filter = t
+## Подсветить файлы на карте: метки над их домами, кольца вокруг жителей. Возвращает [файлов, домов].
+func highlight(files: Array, color: Color) -> Vector2i:
+	if files.is_empty():
+		type_filter = -1
+	_hl.clear()
+	for f in files:
+		_hl[f] = true
+	_hl_color = color
 	_update_pins()
 	var n := 0
 	for p in _pins:
 		n += p[1]
 	return Vector2i(n, _pins.size())
 
+## Подсветить все файлы одного типа (-1 — снять).
+func set_type_filter(t: int) -> Vector2i:
+	type_filter = t
+	var files := []
+	if t >= 0:
+		for it in items:
+			for f in it.folder.files:
+				if f.type == t:
+					files.append(f)
+	var n := highlight(files, TYPE_COLORS[t] if t >= 0 else Color.WHITE)
+	type_filter = t
+	return n
+
 func _update_pins() -> void:
+	if type_filter >= 0:
+		# по типу: новые файлы (вставленные копии) тоже должны светиться
+		for it in items:
+			for f in it.folder.files:
+				if f.type == type_filter:
+					_hl[f] = true
 	_pins.clear()
-	if type_filter < 0:
+	if _hl.is_empty():
 		return
 	for it in items:
 		if it.kind != "house":
 			continue
 		var k := 0
 		for f in it.folder.files:
-			if f.type == type_filter:
+			if _hl.has(f):
 				k += 1
 		if k > 0:
 			_pins.append([it, k])
@@ -631,7 +664,7 @@ func _draw_labels() -> void:
 func _draw_pins(view: Rect2, z: float) -> void:
 	if _pins.is_empty():
 		return
-	var col: Color = TYPE_COLORS[type_filter]
+	var col: Color = _hl_color
 	var t := Time.get_ticks_msec() / 1000.0
 	for p in _pins:
 		var it: Dictionary = p[0]
@@ -734,8 +767,8 @@ func _draw_town(t: Residents, z: float, view: Rect2, sel_t: Residents, marked: A
 		# издалека — цветные точки
 		for r in t.files.size():
 			if view.has_point(t.pos[r]):
-				var hit: bool = type_filter >= 0 and t.files[r].type == type_filter
-				var off: bool = type_filter >= 0 and not hit
+				var hit: bool = _hl.has(t.files[r])
+				var off: bool = not _hl.is_empty() and not hit
 				_overlay.draw_circle(t.pos[r], u * (0.45 if hit else 0.3), Pawn._d(t.looks[r].main, off))
 		return
 	var order := []
@@ -747,11 +780,11 @@ func _draw_town(t: Residents, z: float, view: Rect2, sel_t: Residents, marked: A
 	var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 250.0)
 	for r in order:
 		var dim := only and not marked.has(r)
-		if type_filter >= 0:
-			if t.files[r].type == type_filter:
-				_overlay.draw_arc(t.pos[r], u * (0.48 + 0.06 * pulse), 0, TAU, 24, TYPE_COLORS[type_filter], u * 0.06, true)
+		if not _hl.is_empty():
+			if _hl.has(t.files[r]):
+				_overlay.draw_arc(t.pos[r], u * (0.48 + 0.06 * pulse), 0, TAU, 24, _hl_color, u * 0.06, true)
 			else:
-				dim = true  # остальные типы темнее
+				dim = true  # остальные темнее
 		Pawn.draw(_overlay, t.pos[r], u, t.looks[r], t.facing[r], t.walk[r], dim, u * z >= SIMPLE_PX, t.carry[r] == 1)
 		if u * z < SIMPLE_PX:
 			continue

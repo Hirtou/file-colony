@@ -2,10 +2,15 @@ class_name FakeTree
 extends RefCounted
 ## Генератор ФЕЙКОВОГО дерева папок (в памяти). Один seed = одно дерево.
 
-enum Type { IMAGE, DOC, VIDEO, MUSIC, ARCHIVE, PROGRAM, OTHER }
-const TYPE_NAMES := ["картинка", "документ", "видео", "музыка", "архив", "программа", "другое"]
-const TYPE_EXT := [["jpg", "png"], ["docx", "pdf", "txt"], ["mp4", "mkv"], ["mp3", "flac"], ["zip", "rar"], ["exe", "msi"], ["dat", "log", "tmp"]]
-const TYPE_SIZE := [[1e5, 8e6], [1e4, 5e6], [5e7, 4e9], [3e6, 1.5e7], [1e6, 2e9], [1e6, 2e8], [1e3, 1e7]]  # байты, мин/макс
+enum Type { IMAGE, DOC, VIDEO, MUSIC, ARCHIVE, PROGRAM, OTHER, TABLE, SLIDES, CODE, MODEL, FONT, BOOK, SAVE }
+const TYPE_NAMES := ["картинка", "документ", "видео", "музыка", "архив", "программа", "другое",
+	"таблица", "презентация", "код", "3D-модель", "шрифт", "книга", "сохранение"]
+const TYPE_EXT := [["jpg", "png", "gif", "webp", "psd"], ["docx", "txt", "rtf", "odt"], ["mp4", "mkv", "avi", "mov"],
+	["mp3", "flac", "wav", "ogg"], ["zip", "rar", "7z", "iso"], ["exe", "msi", "apk"], ["dat", "log", "tmp", "bak"],
+	["xlsx", "csv", "ods"], ["pptx", "key", "odp"], ["py", "js", "gd", "cpp", "html"], ["blend", "obj", "fbx", "stl"],
+	["ttf", "otf", "woff"], ["pdf", "epub", "fb2", "djvu"], ["sav", "save", "dat"]]
+const TYPE_SIZE := [[1e5, 8e6], [1e4, 5e6], [5e7, 4e9], [3e6, 1.5e7], [1e6, 2e9], [1e6, 2e8], [1e3, 1e7],
+	[1e4, 2e7], [5e5, 1e8], [5e2, 2e5], [1e5, 3e8], [3e4, 2e6], [2e5, 5e7], [1e3, 5e7]]  # байты, мин/макс
 const MAX_DEPTH := 3
 
 class FileItem:
@@ -121,7 +126,7 @@ static func _make_city(f: Folder, rng: RandomNumberGenerator, depth: int) -> voi
 
 static func _file(rng: RandomNumberGenerator) -> FileItem:
 	var fi := FileItem.new()
-	fi.type = rng.randi_range(0, Type.OTHER)
+	fi.type = rng.randi_range(0, TYPE_NAMES.size() - 1)
 	var ext: Array = TYPE_EXT[fi.type]
 	fi.name = _name(rng) + "." + ext[rng.randi_range(0, ext.size() - 1)]
 	var lim: Array = TYPE_SIZE[fi.type]

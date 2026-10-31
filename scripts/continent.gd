@@ -41,6 +41,7 @@ func _ready() -> void:
 	ui.menu_chosen.connect(_on_menu)
 	ui.tree_pressed.connect(_open_tree)
 	ui.type_chosen.connect(_on_type)
+	ui.arrow.pressed.connect(_fly_to_selected)
 	ui.tree.show_on_map.connect(_tree_to_map)
 	ui.speed_pressed.connect(func(): _speed_i = (_speed_i + 1) % SPEEDS.size())
 	# постройка мира занимает пару секунд — сначала показываем надпись
@@ -59,6 +60,7 @@ func _ready() -> void:
 		Game.cache_world(disk_name, {"root": root, "world": map.world})
 	map.shadows_enabled = Game.settings.shadows
 	_build_index()
+	ui.set_cities(map.items.filter(func(it): return it.depth == 1).map(func(it): return it.folder.name))
 	go_to([root], true)
 	ui.show_loading("")
 	is_built = true
@@ -391,6 +393,7 @@ func _process(delta: float) -> void:
 	if _info_t > 0.5:
 		_info_t = 0.0
 		_show_info()
+	_update_arrow()
 	# камера идёт за найденным жителем, пока игрок сам не двинет её
 	if _follow:
 		if Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_D):
@@ -399,6 +402,38 @@ func _process(delta: float) -> void:
 			var p := map.resident_pos(map.selected.item, map.selected.index)
 			if p.is_finite():
 				cam.position = cam.position.lerp(p, 1.0 - exp(-4.0 * delta))
+
+## Где выбранный (житель или дом) в мире; Vector2.INF — ничего не выбрано.
+func _selected_pos() -> Vector2:
+	var h := map.selected
+	if h.is_empty():
+		return Vector2.INF
+	if h.type == "file":
+		var p := map.resident_pos(h.item, h.index)
+		return p if p.is_finite() else h.item.pos
+	return h.item.pos
+
+## Выбранный за краем экрана — стрелка к нему.
+func _update_arrow() -> void:
+	var p := _selected_pos()
+	if not p.is_finite():
+		ui.point_arrow(Vector2.INF, "")
+		return
+	var h := map.selected
+	if h.type == "file" and h.index >= h.item.folder.files.size():
+		return
+	var text: String = h.item.folder.files[h.index].name if h.type == "file" else h.item.folder.name
+	var ct := get_viewport().get_canvas_transform()
+	if h.type == "folder" and (ct * (h.item.rect as Rect2)).intersects(get_viewport_rect()):
+		ui.point_arrow(Vector2.INF, "")  # дом хоть краем виден — стрелка не нужна
+		return
+	ui.point_arrow(ct * p, text)
+
+func _fly_to_selected() -> void:
+	var p := _selected_pos()
+	if p.is_finite():
+		_fly_to(p, maxf(cam.zoom.x, get_viewport_rect().size.y / (WorldLayout.TILE * 12.0)))
+		_follow = map.selected.get("type") == "file"
 
 # --- день и ночь ---
 
@@ -453,19 +488,43 @@ func _build_index() -> void:
 			_index.append({"text": f.name, "low": String(f.name).to_lower(), "where": "дом «%s»" % it.folder.name,
 				"color": WorldMap.TYPE_COLORS[f.type], "type": "file", "item": it, "index": i})
 
+## Поиск: текст (от 2 букв) и/или фильтры (тип, размер, город). Все найденные файлы светятся на карте.
 func _on_search(text: String) -> void:
 	_found.clear()
 	var low := text.strip_edges().to_lower()
-	if low.length() >= 2:
+	var f: Dictionary = ui.filters()
+	var by_file: bool = f.type >= 0 or f.size >= 0
+	var active: bool = low.length() >= 2 or by_file or f.city >= 0
+	if active:
+		var city = map.items.filter(func(it): return it.depth == 1)[f.city].folder if f.city >= 0 else null
+		var lim: Array = ContinentUI.SIZE_LIMITS[f.size] if f.size >= 0 else []
 		for e in _index:
-			if e.low.contains(low):
-				_found.append(e)
-				if _found.size() >= 8:
-					break
+			if low.length() >= 2 and not e.low.contains(low):
+				continue
+			if city != null and not e.item.path.has(city):
+				continue
+			if by_file:
+				if e.type != "file":
+					continue
+				var file = e.item.folder.files[e.index]
+				if f.type >= 0 and file.type != f.type:
+					continue
+				if not lim.is_empty() and (file.size < lim[0] or file.size >= lim[1]):
+					continue
+			_found.append(e)
 	var rows := []
-	for e in _found:
+	for e in _found.slice(0, 200):
 		rows.append(["%s  ·  %s" % [e.text, e.where], e.color])
-	ui.show_results(rows)
+	ui.show_results(rows, _found.size() if active else -1)
+	# подсветить найденные файлы на карте
+	var files := []
+	for e in _found:
+		if e.type == "file":
+			files.append(e.item.folder.files[e.index])
+	if active or map.type_filter < 0:
+		map.type_filter = -1  # поиск заменяет подсветку типа из легенды
+		map.highlight(files, Color(1.0, 0.85, 0.3))
+		ui.mark_type(-1)
 
 ## Выбрали найденное: папка — открыть её уровень; файл — лететь к жителю и идти за ним.
 func _on_result(i: int) -> void:
@@ -498,9 +557,9 @@ func debug_view(view: String) -> void:
 	for it in map.items:
 		if view == "city" and it.kind == "city" and it.depth == 1 and (best == null or it.r > best.r):
 			best = it
-		elif view in ["house", "pawns", "closeup", "hunt", "chase", "move", "filter"] and it.kind == "house" and (best == null or it.folder.file_count > best.folder.file_count):
+		elif view in ["house", "pawns", "closeup", "hunt", "chase", "move", "filter", "find"] and it.kind == "house" and (best == null or it.folder.file_count > best.folder.file_count):
 			best = it
-		elif view == "family" and it.kind == "house" and it.depth >= 3 and (best == null or it.folder.file_count > best.folder.file_count):
+		elif view.begins_with("family") and it.kind == "house" and it.depth >= 3 and (best == null or it.folder.file_count > best.folder.file_count):
 			best = it  # дом во вложенном районе: видны дедушка, отец, братья, дети
 		elif view == "room" and it.kind == "house" and (best == null or absi(it.folder.file_count - 14) < absi(best.folder.file_count - 14)):
 			best = it  # дом средних размеров — видно мебель
@@ -526,13 +585,15 @@ func debug_view(view: String) -> void:
 		return
 	if best == null:
 		return
-	if view == "family":
+	if view == "family" or view == "family_all":
 		go_to(best.path, true)
 		_open_tree(best.folder)
 		for i in 3:
 			await get_tree().process_frame
+		if view == "family_all":
+			ui.tree._view.fit(true)  # всё дерево диска
 		for t in get_tree().get_processed_tweens():
-			t.custom_step(3.0)  # карточки уже проявились
+			t.custom_step(3.0)
 		return
 	go_to(best.path, true)
 	select({"type": "folder", "item": best})
@@ -558,6 +619,15 @@ func debug_view(view: String) -> void:
 	elif view == "filter":
 		_on_type(0)  # картинки
 		go_to([root], true)
+		return
+	elif view == "find":
+		# поиск по фильтрам: все видео больше 1 ГБ; выбран один — он за краем, видна стрелка
+		ui._f_type.select(FakeTree.Type.VIDEO + 1)
+		ui._f_size.select(4)
+		_on_search("")
+		go_to(best.path, true)
+		if not _found.is_empty():
+			select({"type": "file", "item": _found[-1].item, "index": _found[-1].index})
 		return
 	elif view == "move":
 		# переселение: житель с коробкой идёт в соседний дом того же города
