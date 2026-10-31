@@ -24,8 +24,9 @@ func test_english():
 	assert_eq(String(TranslationServer.translate("Настройки")), "Настройки", "в русском — без перевода")
 
 ## Окрестности для разных seed: у берега океана, с рекой, с озёрами, сухо.
-const ENVS := [{"coast": Vector2(1, 0), "river": true}, {"lakes": 3, "river": false}, {"coast": Vector2(-0.6, 0.8), "lakes": 2},
-	{"river": true, "dry": 0.8}, {}]
+const ENVS := [{"coast": Vector2(1, 0), "river": true, "through": false}, {"lakes": 3, "river": false},
+	{"coast": Vector2(-0.6, 0.8), "lakes": 2, "through": false},
+	{"river": true, "through": true, "dry": 0.8}, {"river": true, "through": true, "coast": Vector2(0, 1)}]
 
 ## Карта первого города мира seed s.
 func _city(s: int) -> Dictionary:
@@ -61,11 +62,25 @@ func test_city_water_and_work():
 		var n: int = w.n
 		var town: Rect2i = w.town
 		var water := 0
+		var in_town := 0
 		for i in n * n:
 			if w.ground[i] == WorldLayout.G.WATER:
 				water += 1
-				assert_false(town.has_point(Vector2i(i % n, i / n)), "seed %d: вода в городе" % s)
+				@warning_ignore("integer_division")
+				if town.has_point(Vector2i(i % n, i / n)):
+					in_town += 1
 		assert_gt(water, 0, "seed %d: вокруг города есть вода" % s)
+		# вода не заходит в дома (река через город обходит их, улицы — мостами)
+		for it in w.items:
+			if it.kind == "city":
+				continue
+			for y in range(it.cell.y, it.cell.y + it.size.y):
+				for x in range(it.cell.x, it.cell.x + it.size.x):
+					assert_ne(w.ground[y * n + x], WorldLayout.G.WATER, "seed %d: вода в доме %s" % [s, it.folder.name])
+		if ENVS[SEEDS.find(s)].get("through", false):
+			assert_gt(in_town, 0, "seed %d: река течёт через город" % s)
+		else:
+			assert_eq(in_town, 0, "seed %d: вода в городе без реки через него" % s)
 		if ENVS[SEEDS.find(s)].has("coast"):
 			var dir: Vector2 = ENVS[SEEDS.find(s)].coast
 			# самый дальний в сторону берега угол карты

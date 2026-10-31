@@ -588,6 +588,17 @@ func debug_view(view: String) -> void:
 		for it in map.items:
 			if it.kind == "city" and it.depth == 1 and (best == null or it.r > best.r):
 				best = it
+	if view == "river":
+		# река в городе: камера на воду внутри города (если река здесь течёт через город)
+		var w: Dictionary = map.world
+		var t: Rect2i = w.town
+		for y in range(t.position.y, t.end.y):
+			for x in range(t.position.x, t.end.x):
+				if w.ground[y * w.n + x] == WorldLayout.G.WATER:
+					cam.position = w.origin + (Vector2(x, y) + Vector2(4, 4)) * WorldLayout.TILE
+					cam.zoom = Vector2.ONE * 0.9
+					return
+		return
 	if view == "work" or view == "fishing" or view == "field":
 		# место работы крупно: мастерская / мостки / поле
 		var key: String = {"work": "идёт в кузницу", "fishing": "идёт на рыбалку", "field": "идёт в поле"}[view]

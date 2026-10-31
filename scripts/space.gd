@@ -554,7 +554,15 @@ func debug_view(view: String) -> void:
 			_dist_goal = target.radius * 4.5
 			_dist = _dist_goal
 		_:
-			_open_continent(Game.city_sites(target.disk_name)[0])
+			# «river» — город, через который течёт река (на любом диске)
+			var site: Dictionary = Game.city_sites(target.disk_name)[0]
+			if view == "river":
+				for p in planets:
+					for s in Game.city_sites(p.disk_name):
+						if s.env.through and site.env.get("through") != true:
+							site = s
+							target = p
+			_open_continent(site)
 			continent.debug_view(view)
 
 func _step(sec: float) -> void:

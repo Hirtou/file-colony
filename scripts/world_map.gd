@@ -373,24 +373,25 @@ func _canvas(node_name: String, fn: Callable) -> Node2D:
 	return c
 
 ## Природная земля и вода — одним шейдером (terrain.gdshader): слои плавно перетекают, без квадратов.
-## Слой клетки: трава 1-4, земля, песок, тропа, вода. Под улицами, дворами, площадями — тропа
-## (земля вокруг них натоптана), под мостками — вода, под полями — земля; сами они — плитки сверху.
+## Слой клетки: трава 1-4, земля, песок, тропа. Под улицами, дворами, площадями — тропа (земля вокруг
+## натоптана), под полями — земля, под водой и мостками — песок; сами они — плитки сверху.
+## Вода — отдельно: размытая маска, берег — её линия уровня (гладкий, без зубцов).
 const TERRAIN_TEX := ["ground_grass_1", "ground_grass_2", "ground_grass_3", "ground_grass_4", "ground_dirt", "ground_sand", "ground_path"]
-const TERRAIN_WATER := 7
 static var _grounds: Texture2DArray
 
 ## Слой шейдера земли для кода клетки.
 static func terrain_layer(code: int) -> int:
 	match code:
-		WorldLayout.G.WATER, WorldLayout.G.PIER:
-			return TERRAIN_WATER
 		WorldLayout.G.GRASS_1, WorldLayout.G.GRASS_2, WorldLayout.G.GRASS_3, WorldLayout.G.GRASS_4:
 			return code - WorldLayout.G.GRASS_1
 		WorldLayout.G.DIRT, WorldLayout.G.FIELD:
 			return 4
-		WorldLayout.G.SAND:
+		WorldLayout.G.SAND, WorldLayout.G.WATER, WorldLayout.G.PIER:
 			return 5
 	return 6  # тропа; под улицами, площадями, дворами
+
+static func is_water(code: int) -> bool:
+	return code == WorldLayout.G.WATER or code == WorldLayout.G.PIER
 
 ## Клетку рисует шейдер земли (плиткой сверху не кладём).
 static func soft_ground(code: int) -> bool:
@@ -408,7 +409,7 @@ func _add_terrain() -> void:
 		var l := terrain_layer(code)
 		@warning_ignore("integer_division")  # номер клетки -> строка: деление нацело и нужно
 		splat.set_pixel(i % n, i / n, Color8(l, 0, 0))
-		if l != TERRAIN_WATER:
+		if not is_water(code):
 			dist[i] = 0
 			water.append(i)
 	# глубина воды: шагов до суши (обход в ширину), не дальше 6
@@ -427,6 +428,20 @@ func _add_terrain() -> void:
 	for i in n * n:
 		@warning_ignore("integer_division")  # номер клетки -> строка: деление нацело и нужно
 		depth.set_pixel(i % n, i / n, Color(minf(1.0, (dist[i] if dist[i] >= 0 else 6) / 6.0), 0, 0))
+	# маска воды, размытая [1 2 1] по строкам и столбцам: у одиночных выступов берег скругляется
+	var m := PackedFloat32Array()
+	m.resize(n * n)
+	for i in n * n:
+		m[i] = 1.0 if is_water(world.ground[i]) else 0.0
+	var h := m.duplicate()
+	for y in n:
+		for x in n:
+			h[y * n + x] = (m[y * n + maxi(x - 1, 0)] + 2.0 * m[y * n + x] + m[y * n + mini(x + 1, n - 1)]) / 4.0
+	var mask := Image.create_empty(n, n, false, Image.FORMAT_R8)
+	for y in n:
+		for x in n:
+			var v := (h[maxi(y - 1, 0) * n + x] + 2.0 * h[y * n + x] + h[mini(y + 1, n - 1) * n + x]) / 4.0
+			mask.set_pixel(x, y, Color(v, 0, 0))
 	if _grounds == null:
 		var imgs: Array[Image] = []
 		for t in TERRAIN_TEX:
@@ -437,6 +452,7 @@ func _add_terrain() -> void:
 	mat.shader = preload("res://shaders/terrain.gdshader")
 	mat.set_shader_parameter("splat", ImageTexture.create_from_image(splat))
 	mat.set_shader_parameter("depth", ImageTexture.create_from_image(depth))
+	mat.set_shader_parameter("water_mask", ImageTexture.create_from_image(mask))
 	mat.set_shader_parameter("grounds", _grounds)
 	mat.set_shader_parameter("n", float(n))
 	var s := Sprite2D.new()

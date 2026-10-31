@@ -395,6 +395,8 @@ static func build_city(root, city, seed_value: int, env := {}) -> Dictionary:
 	_flatten(nd, cell, 1, [root], items, ctx, Vector2i.DOWN)
 	if nd.kind == "city":
 		_exits(nd, cell, ctx)
+	if ter.through:
+		_river_through(items, town, ctx, rng, env.get("coast", Vector2.ZERO))
 	_fields(town, ctx, rng)
 	_fishing(town, ctx, rng)
 	var decor: Array = ctx.decor + _decor(items, ctx, seed_value, dry)
@@ -442,16 +444,63 @@ static func _terrain(n: int, town: Rect2i, rng: RandomNumberGenerator, env: Dict
 				continue
 			_blob(land, n, c, r, noise, safe)
 			break
-	if env.get("river", rng.randf() < 0.6):
+	var river: bool = env.get("river", rng.randf() < 0.6)
+	var through: bool = river and env.get("through", rng.randf() < 0.4)  # река через город — после домов
+	if river and not through:
 		_river(land, n, safe, rng, noise, coast)
-	return {"land": land, "ocean": ocean}
+	_clean_water(land, ocean, n, safe)
+	return {"land": land, "ocean": ocean, "through": through}
+
+## Берега без «крошек»: сглаживание большинством 3x3, мелкие лужи и островки — прочь. Возле города суша.
+static func _clean_water(land: PackedByteArray, ocean: PackedByteArray, n: int, safe: Rect2i) -> void:
+	var src := land.duplicate()
+	for y in range(1, n - 1):
+		for x in range(1, n - 1):
+			var k := 0
+			for dy in range(-1, 2):
+				for dx in range(-1, 2):
+					k += src[(y + dy) * n + x + dx]
+			land[y * n + x] = 1 if k >= 5 else 0
+	for v in [0, 1]:
+		for comp in _parts(land, n, v):
+			if comp.size() < 8:
+				for i in comp:
+					land[i] = 1 - v
+	for y in range(safe.position.y, safe.end.y):
+		for x in range(safe.position.x, safe.end.x):
+			land[y * n + x] = 1
+	for i in n * n:
+		if land[i] == 1:
+			ocean[i] = 0
+
+## Связные области клеток со значением v (4 соседа): массив массивов индексов.
+static func _parts(m: PackedByteArray, n: int, v: int) -> Array:
+	var seen := PackedByteArray()
+	seen.resize(n * n)
+	var out := []
+	for start in n * n:
+		if m[start] != v or seen[start] == 1:
+			continue
+		var comp := []
+		var stack := [start]
+		seen[start] = 1
+		while not stack.is_empty():
+			var i: int = stack.pop_back()
+			comp.append(i)
+			var x := i % n
+			for nb in [i - 1 if x > 0 else -1, i + 1 if x < n - 1 else -1, i - n, i + n]:
+				if nb >= 0 and nb < n * n and m[nb] == v and seen[nb] == 0:
+					seen[nb] = 1
+					stack.append(nb)
+		out.append(comp)
+	return out
 
 ## Озеро: круг с неровным берегом.
 static func _blob(land: PackedByteArray, n: int, c: Vector2, r: float, noise: FastNoiseLite, safe: Rect2i) -> void:
 	for y in range(maxi(0, int(c.y - r * 1.5)), mini(n, int(c.y + r * 1.5) + 1)):
 		for x in range(maxi(0, int(c.x - r * 1.5)), mini(n, int(c.x + r * 1.5) + 1)):
 			var d := Vector2(x + 0.5, y + 0.5).distance_to(c)
-			if d < r * (1.0 + noise.get_noise_2d(x * 3.0, y * 3.0) * 0.45) and not safe.has_point(Vector2i(x, y)):
+			if d < r * (1.0 + noise.get_noise_2d(x * 1.6, y * 1.6) * 0.35) and not safe.has_point(Vector2i(x, y)):
 				land[y * n + x] = 0
 
 ## Река от края карты к другому краю (или в океан), петляет и обходит город.
@@ -485,7 +534,7 @@ static func _river(land: PackedByteArray, n: int, safe: Rect2i, rng: RandomNumbe
 						best = [c1, c2]
 		pts.append_array(best)
 	pts.append(b)
-	var width := rng.randf_range(1.1, 1.9)
+	var width := rng.randf_range(1.6, 2.4)
 	var phase := rng.randf() * TAU
 	var t := 0.0
 	for k in pts.size() - 1:
@@ -503,6 +552,119 @@ static func _river(land: PackedByteArray, n: int, safe: Rect2i, rng: RandomNumbe
 					var c := Vector2i(x, y)
 					if x >= 0 and y >= 0 and x < n and y < n and not safe.has_point(c) and Vector2(x + 0.5, y + 0.5).distance_to(p) <= w:
 						land[y * n + x] = 0
+
+## Река через город: путь от края до края (к океану, если он есть) по свободной земле между домами —
+## самый дешёвый (Дейкстра). Дома, дворы, площади, поля, колодцы не трогает; улицы и переулки пересекает
+## мостами (по мостам ходят, как по улице). В городе река уже, за городом шире. Деревья и фонари из воды убирает.
+static func _river_through(items: Array, town: Rect2i, ctx: Dictionary, rng: RandomNumberGenerator, coast: Vector2) -> void:
+	var n: int = ctx.n
+	var hard := PackedByteArray()  # нельзя: дома и всё твёрдое
+	hard.resize(n * n)
+	var near := PackedByteArray()  # клетка у стены дома: можно, но дороже и не расширяем
+	near.resize(n * n)
+	for it in items:
+		if it.kind == "city":
+			continue
+		var r := Rect2i(it.cell, it.size)
+		for y in range(maxi(r.position.y - 1, 0), mini(r.end.y + 1, n)):
+			for x in range(maxi(r.position.x - 1, 0), mini(r.end.x + 1, n)):
+				if r.has_point(Vector2i(x, y)):
+					hard[y * n + x] = 1
+				else:
+					near[y * n + x] = 1
+	for c in ctx.block:
+		hard[c.y * n + c.x] = 1
+	for i in n * n:
+		var g: int = ctx.ground[i]
+		if g == G.PLAZA or g == G.YARD or g == G.FIELD or g == G.PIER:
+			hard[i] = 1
+	var dir := coast.normalized() if coast.length() > 0.01 else Vector2.from_angle(rng.randf() * TAU)
+	var center := Vector2(town.get_center())
+	var side := dir.orthogonal()
+	var lim := Vector2(n - 1, n - 1)
+	var a := Vector2i((center - dir * n + side * rng.randf_range(-0.12, 0.12) * n).clamp(Vector2.ZERO, lim))
+	var b := Vector2i((center + dir * n + side * rng.randf_range(-0.12, 0.12) * n).clamp(Vector2.ZERO, lim))
+	var noise := FastNoiseLite.new()
+	noise.seed = rng.randi()
+	noise.frequency = 0.08
+	# Дейкстра с «вёдрами» (цены целые и небольшие)
+	const SPAN := 25
+	var dist := PackedInt32Array()
+	dist.resize(n * n)
+	dist.fill(1 << 30)
+	var prev := PackedInt32Array()
+	prev.resize(n * n)
+	prev.fill(-1)
+	var buckets := []
+	for k in SPAN:
+		buckets.append([])
+	var start := a.y * n + a.x
+	var goal := b.y * n + b.x
+	dist[start] = 0
+	buckets[0].append(start)
+	var pending := 1
+	var cur := 0
+	while pending > 0:
+		var bk: Array = buckets[cur % SPAN]
+		if bk.is_empty():
+			cur += 1
+			continue
+		var i: int = bk.pop_back()
+		pending -= 1
+		if dist[i] != cur:
+			continue
+		if i == goal:
+			break
+		var x := i % n
+		@warning_ignore("integer_division")
+		var y := i / n
+		for k in 4:
+			var nx := x + (1 if k == 0 else (-1 if k == 1 else 0))
+			var ny := y + (1 if k == 2 else (-1 if k == 3 else 0))
+			if nx < 0 or ny < 0 or nx >= n or ny >= n:
+				continue
+			var j := ny * n + nx
+			if hard[j] == 1:
+				continue
+			var g: int = ctx.ground[j]
+			var step := 1 if g == G.WATER else 3 + int((noise.get_noise_2d(nx, ny) + 1.0) * 1.5)
+			if walkable(g):
+				step = 18  # через улицу — мост: можно, но поменьше
+			if near[j] == 1:
+				step += 6
+			if cur + step < dist[j]:
+				dist[j] = cur + step
+				prev[j] = i
+				buckets[(cur + step) % SPAN].append(j)
+				pending += 1
+	if prev[goal] < 0:
+		return  # не прошла — значит, без реки
+	var inside := town.grow(2)
+	var i := goal
+	while i >= 0:
+		@warning_ignore("integer_division")
+		var c := Vector2i(i % n, i / n)
+		var rad := 1 if inside.has_point(c) else 2
+		for dy in range(-rad, rad + 1):
+			for dx in range(-rad, rad + 1):
+				var q := c + Vector2i(dx, dy)
+				if dx * dx + dy * dy > rad * rad or q.x < 0 or q.y < 0 or q.x >= n or q.y >= n:
+					continue
+				var j := q.y * n + q.x
+				if hard[j] == 1 or (near[j] == 1 and q != c):
+					continue
+				var g: int = ctx.ground[j]
+				if g == G.STREET or g == G.PATH:
+					ctx.ground[j] = G.PIER  # мост
+				elif g != G.PIER:
+					ctx.ground[j] = G.WATER
+		i = prev[i]
+	var keep := []
+	for d in ctx.decor:
+		var dc := Vector2i(d.c.floor())
+		if ctx.ground[dc.y * n + dc.x] != G.WATER:
+			keep.append(d)
+	ctx.decor = keep
 
 ## Отрезок задевает прямоугольник?
 static func _crosses(a: Vector2, b: Vector2, r: Rect2) -> bool:

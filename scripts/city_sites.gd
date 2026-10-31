@@ -68,5 +68,6 @@ static func _env(img: Image, p: Vector2i, rng: RandomNumberGenerator) -> Diction
 			else:
 				green += 1
 	var coast := sum.normalized() if near < 11.0 and sum.length() > 0.001 else Vector2.ZERO
-	return {"coast": coast, "lakes": rng.randi_range(1, 3), "river": rng.randf() < (0.75 if coast != Vector2.ZERO else 0.55),
+	var river := rng.randf() < (0.75 if coast != Vector2.ZERO else 0.55)
+	return {"coast": coast, "lakes": rng.randi_range(1, 3), "river": river, "through": river and rng.randf() < 0.45,
 		"dry": clampf(float(brown) / maxf(1.0, brown + green) * 1.2 - 0.1, 0.0, 1.0)}

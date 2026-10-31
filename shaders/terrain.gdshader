@@ -3,12 +3,12 @@ shader_type canvas_item;
 // слои плавно перетекают друг в друга по неровной (шумной) границе. У воды песок темнеет (мокрый),
 // по кромке — светлая пена; вода у берега светлее, вдали темнее, по ней бежит лёгкая рябь.
 
-uniform sampler2D splat : filter_nearest;               // R*255 — слой клетки: 0..6 текстуры, 7 — вода
+uniform sampler2D splat : filter_nearest;               // R*255 — слой клетки: 0..6 текстуры (под водой — песок)
+uniform sampler2D water_mask : filter_linear;           // R — вода, размытая по соседям: берег — линия уровня 0.42
 uniform sampler2D depth : filter_linear;                // R — глубина воды: 0 у берега .. 1 далеко
 uniform sampler2DArray grounds : filter_linear_mipmap, repeat_enable;
 uniform float n = 64.0;                                 // клеток по стороне карты
 
-const int WATER = 7;
 const vec3 SHALLOW = vec3(0.30, 0.43, 0.44);
 const vec3 DEEP = vec3(0.13, 0.22, 0.29);
 
@@ -42,7 +42,6 @@ void fragment() {
 	vec2 b = floor(q);
 	vec3 land = vec3(0.0);
 	float lw = 0.0;
-	float ww = 0.0;
 	for (int k = 0; k < 9; k++) {
 		vec2 c = b + vec2(float(k % 3) - 1.0, float(k / 3) - 1.0);
 		float dist = length(q - (c + 0.5));
@@ -52,26 +51,24 @@ void fragment() {
 		}
 		int l = layer_at(c);
 		w *= w * (0.55 + 0.9 * noise(p * 2.2 + float(l) * 13.7));
-		if (l == WATER) {
-			ww += w;
-		} else {
-			land += texture(grounds, vec3(p, float(l))).rgb * w;
-			lw += w;
-		}
+		land += texture(grounds, vec3(p, float(l))).rgb * w;
+		lw += w;
 	}
-	float tw = lw + ww;
-	ww /= max(tw, 0.0001);
 	land /= max(lw, 0.0001);
-	// мокрый песок/земля у воды
-	land *= 1.0 - 0.3 * smoothstep(0.0, 0.55, ww);
-	// вода: глубина плавно, рябь
+	// берег — линия уровня размытой маски воды: гладкая, без зубцов; лёгкий неподвижный изгиб шумом
+	float field = texture(water_mask, UV).r + (noise(p * 0.8 + 5.0) - 0.5) * 0.08;
+	const float LEVEL = 0.42;
+	float aa = max(fwidth(field), 0.002);
+	float shore = smoothstep(LEVEL - aa, LEVEL + aa, field);
+	// мокрый песок у воды
+	land *= 1.0 - 0.28 * smoothstep(LEVEL - 0.22, LEVEL, field);
+	// вода: глубина плавно, рябь едва заметна
 	float d = texture(depth, UV).r;
 	vec3 water = mix(SHALLOW, DEEP, smoothstep(0.0, 1.0, d));
-	float rip = noise(p * 1.7 + vec2(TIME * 0.25, TIME * 0.12)) * noise(p * 2.3 - vec2(TIME * 0.18, -TIME * 0.2));
-	water += vec3(0.06, 0.07, 0.07) * smoothstep(0.35, 0.6, rip);
-	// берег: вода наступает по шумной кромке, на кромке — пена
-	float shore = smoothstep(0.38, 0.62, ww + (noise(p * 4.0 + TIME * 0.3) - 0.5) * 0.12);
-	vec3 col = mix(land, water, shore);
-	col += vec3(0.75, 0.8, 0.78) * 0.35 * (1.0 - smoothstep(0.0, 0.12, abs(shore - 0.5))) * step(0.01, ww) * step(ww, 0.99);
-	COLOR = vec4(col, 1.0);
+	float rip = noise(p * 1.4 + vec2(TIME * 0.2, TIME * 0.1)) * noise(p * 1.9 - vec2(TIME * 0.15, -TIME * 0.17));
+	water += vec3(0.035, 0.04, 0.04) * smoothstep(0.3, 0.7, rip);
+	// пена — тонкая светлая кайма сразу у берега
+	float foam = (1.0 - smoothstep(0.0, 0.07, field - LEVEL)) * shore;
+	water = mix(water, vec3(0.78, 0.84, 0.82), foam * (0.35 + 0.1 * sin(TIME * 1.3 + p.x * 0.7 + p.y * 0.5)));
+	COLOR = vec4(mix(land, water, shore), 1.0);
 }
