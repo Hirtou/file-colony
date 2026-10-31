@@ -1,5 +1,6 @@
 extends Node2D
-## Материк диска: карта сверху, раскрытие городов, выбор объектов, интерфейс.
+## Карта города (папки верхнего уровня диска) сверху: город с районами и окрестностями, выбор объектов, интерфейс.
+## Карта строится один раз и запоминается (Game) — вернёшься в город, он такой же.
 
 signal exit_requested
 signal built  # мир построен
@@ -14,7 +15,9 @@ const SPEEDS := [1, 10, 60]     # кнопка скорости времени
 
 var disk_name := "C:"
 var disk_gb := 256.0
+var site := {}        # город на планете (CitySites): {folder, env, ...}; пусто — первый город диска
 var root
+var city              # папка города
 var path: Array = []  # [root, папка, ...] — текущий уровень
 var _tw: Tween
 var _info_t := 0.0
@@ -44,24 +47,28 @@ func _ready() -> void:
 	ui.arrow.pressed.connect(_fly_to_selected)
 	ui.tree.show_on_map.connect(_tree_to_map)
 	ui.speed_pressed.connect(func(): _speed_i = (_speed_i + 1) % SPEEDS.size())
-	# постройка мира занимает пару секунд — сначала показываем надпись
-	ui.show_loading(I18n.t("Строим мир «%s»…") % disk_name)
+	root = Game.disk_root(disk_name)
+	if site.is_empty():
+		site = Game.city_sites(disk_name)[0]
+	city = site.folder
+	# постройка города занимает пару секунд — сначала показываем надпись
+	ui.show_loading(I18n.t("Строим город «%s»…") % city.name)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var seed_value := Game.tree_seed(disk_name)
-	var cached := Game.cached_world(disk_name)  # второй вход — без перестройки
-	root = cached.root if not cached.is_empty() else FakeTree.generate(seed_value, disk_name)
-	map.setup(root, seed_value, cached.get("world", {}))
+	var key := "%s/%s" % [disk_name, city.name]
+	var cached := Game.cached_world(key)  # второй вход — без перестройки, город тот же
+	map.setup(root, seed_value, cached.get("world", {}), city, site.get("env", {}))
 	map.file_deleted.connect(_on_file_deleted)
 	map.files_changed.connect(_refresh)
-	cam.bounds = map.land_rect  # камера не улетает с материка
+	cam.bounds = map.land_rect  # камера не улетает с карты
 	ui.set_clipboard(Game.clipboard, Game.clip_cut)
 	if cached.is_empty():
-		Game.cache_world(disk_name, {"root": root, "world": map.world})
+		Game.cache_world(key, {"world": map.world})
 	map.shadows_enabled = Game.settings.shadows
 	_build_index()
 	ui.set_cities(map.items.filter(func(it): return it.depth == 1).map(func(it): return it.folder.name))
-	go_to([root], true)
+	go_to([root, city], true)
 	ui.show_loading("")
 	is_built = true
 	built.emit()
@@ -115,8 +122,8 @@ func _fly_to(pos: Vector2, z: float, instant := false) -> void:
 	_tw.tween_property(cam, "zoom", Vector2(z, z), FLY_TIME)
 
 func _on_crumb(i: int) -> void:
-	if i == 0:
-		exit_requested.emit()
+	if i <= 1:
+		exit_requested.emit()  # «Космос» или диск — назад на планету, выбирать город
 	else:
 		go_to(path.slice(0, i))
 
@@ -256,13 +263,25 @@ func _tree_to_map(p) -> void:
 		if not it.is_empty():
 			go_to(it.path, false, false)
 			_focus_file(it, house.files.find(p))
+		else:
+			_other_city(p)
+		return
+	if p == root:
+		go_to([root, city])
 		return
 	if not map.by_folder.has(p):
-		go_to([root])  # диск — весь материк
+		_other_city(p)
 		return
 	var it: Dictionary = map.by_folder[p]
 	go_to(it.path if it.kind == "city" else it.path.slice(0, it.path.size() - 1))
 	select({"type": "folder", "item": it})
+
+## Человек из другого города: на этой карте его нет — подсказать, где он живёт.
+func _other_city(p) -> void:
+	var top = p
+	while ui.tree.parent_of(top) != null and ui.tree.parent_of(top) != root:
+		top = ui.tree.parent_of(top)
+	ui.toast(I18n.t("«%s» живёт в другом городе — «%s». Вернись на планету и выбери его.") % [p.name, top.name], Color(1.0, 0.8, 0.5))
 
 ## Скопировать файл: его модель (житель) теперь лежит в буфере слева внизу.
 func _copy(item: Dictionary, index: int) -> void:
@@ -298,7 +317,7 @@ func _paste(item: Dictionary) -> void:
 	if Game.clip_cut:
 		var src := _house_of(Game.clipboard)
 		if src.is_empty():
-			ui.toast("Переселять можно только в пределах одной планеты", Color(1.0, 0.8, 0.5))
+			ui.toast("Переселять можно только в пределах одного города", Color(1.0, 0.8, 0.5))
 			return
 		if src == item:
 			ui.toast("Он и так живёт в этом доме", Color(1.0, 0.8, 0.5))
@@ -569,6 +588,18 @@ func debug_view(view: String) -> void:
 		for it in map.items:
 			if it.kind == "city" and it.depth == 1 and (best == null or it.r > best.r):
 				best = it
+	if view == "work" or view == "fishing" or view == "field":
+		# место работы крупно: мастерская / мостки / поле
+		var key: String = {"work": "идёт в кузницу", "fishing": "идёт на рыбалку", "field": "идёт в поле"}[view]
+		for wk in map.world.work:
+			if String(wk.go).begins_with(key):
+				cam.position = map.world.origin + (Vector2(wk.cells[0]) + Vector2(0.5, 0.5)) * WorldLayout.TILE
+				cam.zoom = Vector2.ONE * 1.4
+				for t in map._towns.values():
+					for i in 600:
+						t.step(0.1)  # жители успели разойтись по делам
+				return
+		return
 	if view == "search":
 		# найти файл по части имени и долететь до жителя
 		var q: String = map.items[0].folder.name
@@ -618,7 +649,7 @@ func debug_view(view: String) -> void:
 		cam.zoom = Vector2.ONE * 2.6
 	elif view == "filter":
 		_on_type(0)  # картинки
-		go_to([root], true)
+		go_to([root, city], true)
 		return
 	elif view == "find":
 		# поиск по фильтрам: все видео больше 1 ГБ; выбран один — он за краем, видна стрелка

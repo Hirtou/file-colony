@@ -30,7 +30,8 @@
 - scripts/space.gd — космос в 3D: камера-орбита, солнце, перелёт между дисками; scripts/globe.gd + shaders/globe.gdshader — 3D-планета
 - scripts/sun.gd, scripts/stars.gd — далёкое солнце и звёзды (параллакс)
 - scripts/fake_tree.gd — FakeTree.generate(seed) -> дерево Folder (выдуманное)
-- scripts/world_layout.gd — раскладка материка: деревни, дома, мебель, дороги
+- scripts/city_sites.gd — где на 3D-планете стоят города и что вокруг (океан, сухость)
+- scripts/world_layout.gd — карта города (build_city): деревня, дома, мебель, мастерские, озёра, река, океан, поля, мостки
 - scripts/world_map.gd — рисование карты, посёлки, удаление/вставка файлов
 - scripts/residents.gd — жители посёлка (дела, болтовня, сон); scripts/pawn.gd — человечек
 - scripts/hunt.gd — удаление: киллеры, погоня, выстрел

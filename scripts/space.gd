@@ -2,7 +2,8 @@ class_name SpaceScene
 extends Node2D
 ## Космос в 3D: планеты-диски висят на месте, камера летает вокруг выбранной — перетаскивание мышью
 ## крутит её как угодно, колёсико — ближе/дальше. Вдали солнце (тоже шар). Внизу — выбор диска:
-## камера отлетает от одной планеты и подлетает к другой. «Войти» — нырок на материк.
+## камера отлетает от одной планеты и подлетает к другой. «Войти» — камера приближается, на планете
+## проступают очертания городов (папок верхнего уровня); клик по городу — посадка на его карту.
 
 # Фейковые диски (реальный диск не читаем)
 const DISKS := [
@@ -16,6 +17,8 @@ const SUN_DIST := 700.0
 const VIEW_DIR := Vector3(0.45, 0.3, 1.0)    # откуда камера смотрит на планету: освещено ~40%, солнце справа за кадром
 const NEAR := 4.0                            # обычное расстояние камеры, в радиусах планеты
 const DRAG_PX := 6.0        # сдвиг мыши, после которого это вращение, а не клик
+const CITY_VIEW := 2.1      # расстояние камеры при выборе города, в радиусах планеты
+const HINT := "Перетаскивание — крутить камеру · колёсико — ближе/дальше · ←/→ — другой диск"
 
 const CONTINENT := preload("res://scenes/continent.tscn")
 var continent: Node = null  # открытый материк (вид сверху)
@@ -41,6 +44,12 @@ var _bar: HBoxContainer
 var _names := {}            # Globe -> Label с именем под планетой
 var _fade: ColorRect
 var _fade_text: Label
+var _back: Button
+var _hint: Label
+var _picking := false       # выбираем город на планете
+var _sites: Array = []      # города планеты (CitySites)
+var _site_labels: Array[Label] = []
+var _hover := -1            # город под мышью
 
 ## Радиус растёт умеренно: корень 4-й степени от объёма.
 static func radius_for(gb: float) -> float:
@@ -171,8 +180,15 @@ func _build_ui() -> void:
 	_enter.offset_right = -60
 	_enter.offset_top = -26
 	_enter.offset_bottom = 26
-	_enter.pressed.connect(_dive)
+	_enter.pressed.connect(_approach)
 	_ui.add_child(_enter)
+	_back = Button.new()
+	_back.text = "◀ К планетам"
+	_back.add_theme_font_size_override("font_size", 18)
+	_back.position = Vector2(110, 16)
+	_back.visible = false
+	_back.pressed.connect(_leave_cities)
+	_ui.add_child(_back)
 	# выбор диска внизу по центру
 	var bp := PanelContainer.new()
 	bp.anchor_left = 0.5
@@ -186,12 +202,12 @@ func _build_ui() -> void:
 	_bar = HBoxContainer.new()
 	_bar.add_theme_constant_override("separation", 8)
 	bp.add_child(_bar)
-	var hint := Label.new()
-	hint.text = "Перетаскивание — крутить камеру · колёсико — ближе/дальше · ←/→ — другой диск"
-	hint.add_theme_font_size_override("font_size", 13)
-	hint.modulate.a = 0.55
-	hint.position = Vector2(16, 64)
-	_ui.add_child(hint)
+	_hint = Label.new()
+	_hint.text = I18n.t(HINT)
+	_hint.add_theme_font_size_override("font_size", 13)
+	_hint.modulate.a = 0.55
+	_hint.position = Vector2(16, 64)
+	_ui.add_child(_hint)
 	# затемнение для нырка на планету и обратно (поверх всего)
 	var fl := CanvasLayer.new()
 	fl.layer = 20
@@ -243,7 +259,9 @@ func _process(delta: float) -> void:
 	var d := _cam.project_ray_normal(m)
 	var over := _planet_at(o, d)
 	for p in planets:
-		p.hovered = p == over and not busy
+		p.hovered = p == over and not busy and not _picking
+	if _picking:
+		_update_sites(o, d)
 	# имена под другими планетами (выбранная — на кнопке внизу)
 	for p in planets:
 		var l: Label = _names[p]
@@ -252,6 +270,32 @@ func _process(delta: float) -> void:
 		if l.visible:
 			l.size = Vector2.ZERO
 			l.position = _cam.unproject_position(at) - Vector2(l.get_combined_minimum_size().x / 2.0, 0)
+
+## Выбор города: какой под мышью (луч o, d), подписи городов на видимой стороне планеты.
+func _update_sites(o: Vector3, d: Vector3) -> void:
+	var hover := -1
+	var t := target.hit(o, d)
+	if t > 0.0 and not busy:
+		var local := target.to_local(o + d * t).normalized()
+		var best := INF
+		for i in _sites.size():
+			var a: float = local.angle_to(_sites[i].dir)
+			if a < _sites[i].r * 1.25 and a < best:
+				best = a
+				hover = i
+	if hover != _hover:
+		_hover = hover
+		target.set_hover_site(hover)
+	var cam_pos := _cam.global_position
+	for i in _site_labels.size():
+		var l := _site_labels[i]
+		var at := target.surface(_sites[i].dir, 1.02)
+		var facing := (at - target.global_position).normalized().dot((cam_pos - at).normalized())
+		l.visible = facing > 0.15 and not busy
+		if l.visible:
+			l.modulate = Color(1.0, 0.9, 0.5) if i == _hover else Color(1, 1, 1, clampf(facing * 2.5, 0.0, 1.0))
+			l.size = Vector2.ZERO
+			l.position = _cam.unproject_position(at) - l.get_combined_minimum_size() / 2.0
 
 func _planet_at(o: Vector3, d: Vector3) -> Globe:
 	var best: Globe = null
@@ -291,9 +335,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			else:
 				_drag = false
 				if _moved < DRAG_PX and event.button_index == MOUSE_BUTTON_LEFT:
+					if _picking and _hover >= 0:
+						_dive_city(_hover)
+						return
 					var p := _planet_at(_cam.project_ray_origin(event.position), _cam.project_ray_normal(event.position))
 					if p != null and p != target:
 						_fly_to(p)
+				elif _moved < DRAG_PX and _picking:
+					_leave_cities()  # правый клик — назад к планетам
 			return
 	if event is InputEventMouseMotion and _drag:
 		_moved += event.relative.length()
@@ -306,15 +355,20 @@ func _unhandled_input(event: InputEvent) -> void:
 		var i := planets.find(target) + (1 if event.keycode == KEY_RIGHT else -1)
 		_fly_to(planets[(i + planets.size()) % planets.size()])
 	elif event.is_action_pressed("ui_cancel"):
-		_to_menu()
-	elif event.is_action_pressed("ui_accept"):
-		_dive()
+		if _picking:
+			_leave_cities()
+		else:
+			_to_menu()
+	elif event.is_action_pressed("ui_accept") and not _picking:
+		_approach()
 
 ## Перелёт к другой планете: камера отлетает назад, поворачивается к виду «солнце сбоку» и подлетает.
 func _fly_to(p: Globe) -> void:
 	if busy or p == target:
 		_select(target)  # кнопку текущего диска не отжимаем
 		return
+	if _picking:
+		_leave_cities(true)
 	busy = true
 	_spin = Vector2.ZERO
 	_enter.visible = false
@@ -338,29 +392,94 @@ func _fly_to(p: Globe) -> void:
 		_dist_goal = _dist
 		_enter.visible = true)
 
-## «Войти» с анимацией: облака несутся, камера ныряет к поверхности, экран темнеет;
-## пока строится мир — надпись «Посадка…», потом материк проявляется и камера «садится».
-func _dive() -> void:
-	if busy or target == null:
+## «Войти»: камера приближается к планете, проступают очертания городов — выбирай, куда садиться.
+func _approach() -> void:
+	if busy or target == null or _picking:
 		return
 	busy = true
+	_spin = Vector2.ZERO
 	_enter.visible = false
-	target.spin_up()
-	_fade_text.text = I18n.t("Посадка на «%s»…") % target.disk_name
-	var tw := create_tween().set_parallel()
-	tw.tween_property(self, "_dist", target.radius * 1.04, 1.3).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_IN)
-	tw.tween_property(_fade, "color:a", 1.0, 0.45).set_delay(0.9)
-	tw.tween_property(_fade_text, "modulate:a", 1.0, 0.3).set_delay(1.0)
-	tw.chain().tween_callback(_land)
+	_sites = Game.city_sites(target.disk_name)
+	target.show_sites(_sites)
+	target.show_moon(false)
+	for s in _sites:
+		var l := Label.new()
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		l.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
+		l.add_theme_font_size_override("font_size", 16)
+		l.add_theme_color_override("font_outline_color", Color.BLACK)
+		l.add_theme_constant_override("outline_size", 6)
+		l.text = "%s\n%s" % [s.folder.name, I18n.t("жителей: %d") % s.folder.total_files()]
+		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_ui.add_child(l)
+		_site_labels.append(l)
+	# камера разворачивается к городам (к середине суши с ними)
+	var mid := Vector3.ZERO
+	for s in _sites:
+		mid += target.surface(s.dir) - target.global_position
+	var a_q := _orbit.get_rotation_quaternion()
+	var b_q := a_q
+	if mid.length() > 0.01:
+		b_q = Basis.looking_at(-mid.normalized(), _orbit.y).get_rotation_quaternion()
+	var a_dist := _dist
+	var tw := create_tween()
+	tw.tween_method(func(t: float):
+		var e := smoothstep(0.0, 1.0, t)
+		_orbit = Basis(a_q.slerp(b_q, e))
+		_dist = lerpf(a_dist, target.radius * CITY_VIEW, e), 0.0, 1.0, 1.2)
+	tw.tween_callback(func():
+		busy = false
+		_dist_goal = _dist
+		_picking = true
+		_back.visible = true
+		_hint.text = I18n.t("Выбери город — клик по нему · перетаскивание — крутить планету · Esc / ПКМ — назад"))
 
-func _land() -> void:
-	_open_continent()
+## Назад от выбора города к виду на планету (instant — без анимации, перед перелётом к другой).
+func _leave_cities(instant := false) -> void:
+	_picking = false
+	_hover = -1
+	target.set_hover_site(-1)
+	target.show_sites([])
+	target.show_moon(true)
+	for l in _site_labels:
+		l.queue_free()
+	_site_labels.clear()
+	_back.visible = false
+	_hint.text = I18n.t(HINT)
+	if instant:
+		return
+	_dist_goal = target.radius * NEAR
+	_enter.visible = true
+
+## Посадка в город: камера встаёт над ним и ныряет, экран темнеет; пока строится карта — «Посадка…».
+func _dive_city(i: int) -> void:
+	if busy:
+		return
+	busy = true
+	_back.visible = false
+	var s: Dictionary = _sites[i]
+	var up := target.surface(s.dir) - target.global_position
+	var a_q := _orbit.get_rotation_quaternion()
+	var b_q := Basis.looking_at(-up.normalized(), Vector3.UP if absf(up.normalized().y) < 0.95 else Vector3.RIGHT).get_rotation_quaternion()
+	var a_dist := _dist
+	target.spin_up()
+	_fade_text.text = I18n.t("Посадка в город «%s»…") % s.folder.name
+	var tw := create_tween().set_parallel()
+	tw.tween_method(func(t: float):
+		_orbit = Basis(a_q.slerp(b_q, smoothstep(0.0, 0.6, t)))
+		_dist = lerpf(a_dist, target.radius * 1.03, pow(t, 2.2)), 0.0, 1.0, 1.6)
+	tw.tween_property(_fade, "color:a", 1.0, 0.45).set_delay(1.2)
+	tw.tween_property(_fade_text, "modulate:a", 1.0, 0.3).set_delay(1.3)
+	tw.chain().tween_callback(_land.bind(s))
+
+func _land(s: Dictionary) -> void:
+	_open_continent(s)
 	if continent.is_built:
 		_landed()
 	else:
 		continent.built.connect(_landed, CONNECT_ONE_SHOT)
 
-## Мир готов: затемнение уходит, камера материка опускается сверху.
+## Город готов: затемнение уходит, камера карты опускается сверху.
 func _landed() -> void:
 	busy = false
 	var ccam: Camera2D = continent.cam
@@ -371,16 +490,17 @@ func _landed() -> void:
 	tw.tween_property(_fade, "color:a", 0.0, 0.7)
 	tw.tween_property(_fade_text, "modulate:a", 0.0, 0.3)
 
-## «Войти»: карта материка сверху вместо космоса.
-func _open_continent() -> void:
+## Карта города s сверху вместо космоса.
+func _open_continent(s: Dictionary) -> void:
 	continent = CONTINENT.instantiate()
 	continent.disk_name = target.disk_name
 	continent.disk_gb = target.disk_gb
+	continent.site = s
 	continent.exit_requested.connect(_leave)
 	_show_space(false)
 	add_child(continent)
 
-## Назад в космос (к той же планете): экран темнеет, камера «взлетает» от поверхности.
+## Назад из города на планету — к выбору города: экран темнеет, камера «взлетает» над городом.
 func _leave() -> void:
 	if busy:
 		return
@@ -397,21 +517,23 @@ func _leave_now() -> void:
 	_cam.make_current()
 	target.spin_up()
 	_dist = target.radius * 1.08
-	_dist_goal = target.radius * NEAR
+	_dist_goal = target.radius * CITY_VIEW
 	var tw := create_tween().set_parallel()
 	tw.tween_property(self, "_dist", _dist_goal, 1.4).set_trans(Tween.TRANS_EXPO).set_ease(Tween.EASE_OUT)
 	tw.tween_property(_fade, "color:a", 0.0, 0.5)
 	tw.chain().tween_callback(func():
 		busy = false
-		_enter.visible = true)
+		_back.visible = _picking  # снова выбор города
+		_enter.visible = not _picking)
 
 func _show_space(v: bool) -> void:
 	_world.visible = v
-	_wenv.environment = _env if v else null  # на материке звёздное небо не нужно
+	_wenv.environment = _env if v else null  # в городе звёздное небо не нужно
 	_ui.visible = v
 
 ## Для скриншотов: space — вид на C:; planet — перелёт к последней; fly — середина перелёта;
-## dive — середина нырка; sun — камера повёрнута к солнцу; иначе сразу на материк (map / city / house ...).
+## cities — выбор города; dive — середина посадки в город; sun — камера повёрнута к солнцу;
+## иначе сразу в первый город (map / city / house ...).
 func debug_view(view: String) -> void:
 	match view:
 		"space":
@@ -419,15 +541,20 @@ func debug_view(view: String) -> void:
 		"planet", "fly":
 			_fly_to(planets[-1])
 			_step(FLY_TIME * (0.5 if view == "fly" else 1.1))
-		"dive":
-			_dive()
-			_step(1.05)
+		"cities", "dive":
+			_approach()
+			_step(1.3)
+			_hover = 0
+			target.set_hover_site(0)
+			if view == "dive":
+				_dive_city(0)
+				_step(1.25)
 		"sun":
 			_rotate(Vector2(0.75, 0.05))
 			_dist_goal = target.radius * 4.5
 			_dist = _dist_goal
 		_:
-			_open_continent()
+			_open_continent(Game.city_sites(target.disk_name)[0])
 			continent.debug_view(view)
 
 func _step(sec: float) -> void:

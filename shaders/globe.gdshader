@@ -8,6 +8,11 @@ uniform vec3 sun = vec3(1.0, 0.0, 0.0);  // на солнце, мировые к
 uniform float clouds = 0.0;  // поворот облаков, рад
 uniform float glow = 0.0;    // 0..1 — подсветка (наведение, выбор)
 uniform float seed = 0.0;    // свой рисунок облаков и огней
+// города при выборе: xyz — точка на шаре (координаты планеты), w — угловой радиус очертаний
+uniform vec4 sites[32];
+uniform int site_count = 0;
+uniform int site_hover = -1;
+uniform float sites_on = 0.0;  // 0..1 — очертания проявляются
 
 const vec3 ATMO = vec3(0.45, 0.68, 1.0);
 const vec3 NIGHT = vec3(0.04, 0.05, 0.12);
@@ -84,6 +89,28 @@ void fragment() {
 	// облака крутятся сами по себе; ночью — тёмные
 	float cl = smoothstep(0.52, 0.78, fbm(spin(b, -clouds) * 2.6 + vec3(seed * 9.0)));
 	c = mix(c, vec3(1.0) * mix(0.004, 0.9, day), cl * 0.75);
+	// города: неровные очертания, внутри — крыши кварталов; наведённый — ярче
+	if (sites_on > 0.001) {
+		for (int i = 0; i < site_count; i++) {
+			vec3 s = sites[i].xyz;
+			float ang = length(b - s);
+			float rr = sites[i].w * (1.0 + (noise3(b * 40.0 + float(i) * 7.3) - 0.5) * 0.55);
+			if (ang > rr * 1.6) {
+				continue;
+			}
+			bool hot = i == site_hover;
+			float px = fwidth(ang) * 1.2;
+			float line = 1.0 - smoothstep(px * 0.4, px * 1.6, abs(ang - rr));
+			float inside = 1.0 - smoothstep(rr - px, rr, ang);
+			vec3 q2 = b * 420.0;
+			float roof = step(0.55, hash3(floor(q2))) * step(length(fract(q2) - 0.5), 0.38);
+			vec3 roofs = mix(vec3(0.42, 0.3, 0.2), vec3(0.7, 0.42, 0.28), hash3(floor(q2) + 3.0)) * mix(0.08, 1.0, day);
+			c = mix(c, roofs, inside * roof * sites_on * 0.85);
+			c = mix(c, c + vec3(1.0, 0.8, 0.35) * 0.12, inside * sites_on * (hot ? 1.0 : 0.4));
+			vec3 lc = hot ? vec3(1.6, 1.25, 0.5) : vec3(1.0, 0.86, 0.55);
+			c = mix(c, lc, line * sites_on * (hot ? 1.0 : 0.8));
+		}
+	}
 	// кайма атмосферы по краю шара, ярче на дневной стороне
 	float rim = pow(1.0 - max(dot(n, V), 0.0), 2.5);
 	c += ATMO * rim * mix(0.05, 0.8, smoothstep(-0.3, 0.6, d)) * (1.0 + glow * 0.8);

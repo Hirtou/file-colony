@@ -25,7 +25,9 @@ var mode := "disks"            # disks / sandbox
 var disks: Array = MY_DISKS    # [{name, gb}]
 var salt := 0                  # 0 — «Мои диски», иначе зерно песочницы
 var settings := DEFAULTS.duplicate()
-var _worlds := {}              # кэш построенных материков
+var _worlds := {}              # кэш построенных карт городов: «диск|соль/город» -> {world}
+var _roots := {}               # деревья папок дисков
+var _sites := {}               # города на планетах
 var clipboard = null           # скопированный файл (FileItem, выдуманный), общий для всех планет
 var clip_cut := false          # файл вырезан: «Вставить» переселит его, а не скопирует
 var _fps: Label
@@ -84,16 +86,33 @@ func tree_seed(disk_name: String) -> int:
 func planet_seed(disk_name: String) -> int:
 	return PlanetTexture.seed_from_name(disk_name) + salt
 
-## Построенный материк диска (или {}): второй вход на планету — мгновенно.
+## Построенная карта (ключ — «диск/город», или {}): второй вход в город — мгновенно и такой же, как был.
 func cached_world(disk_name: String) -> Dictionary:
 	return _worlds.get("%s|%d" % [disk_name, salt], {})
 
 func cache_world(disk_name: String, data: Dictionary) -> void:
 	_worlds["%s|%d" % [disk_name, salt]] = data
 
+## Дерево папок диска (выдуманное) — одно на всю игру: удаления и переселения в нём сохраняются.
+func disk_root(disk_name: String):
+	var k := "%s|%d" % [disk_name, salt]
+	if not _roots.has(k):
+		_roots[k] = FakeTree.generate(tree_seed(disk_name), disk_name)
+	return _roots[k]
+
+## Где на планете диска стоят города и что вокруг них (CitySites).
+func city_sites(disk_name: String) -> Array:
+	var k := "%s|%d" % [disk_name, salt]
+	if not _sites.has(k):
+		var img := PlanetTexture.get_texture(planet_seed(disk_name)).get_image()
+		_sites[k] = CitySites.make(disk_root(disk_name), planet_seed(disk_name), img)
+	return _sites[k]
+
 ## Забыть построенные миры (после смены языка имена папок другие).
 func forget_worlds() -> void:
 	_worlds.clear()
+	_roots.clear()
+	_sites.clear()
 	clipboard = null
 	clip_cut = false
 

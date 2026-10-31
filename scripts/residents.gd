@@ -60,8 +60,10 @@ func _init(house_items: Array, walk_area: Rect2i, world: Dictionary, seed_value:
 	_n = world.n
 	_origin = world.origin
 	_rng.seed = seed_value
-	for y in range(maxi(area.position.y, 0), mini(area.end.y, _n)):
-		for x in range(maxi(area.position.x, 0), mini(area.end.x, _n)):
+	# гуляют по улицам самого города; за город (поля, рыбалка) ходят только по делам
+	var town: Rect2i = area.intersection(world.town.grow(1)) if world.has("town") else area
+	for y in range(maxi(town.position.y, 0), mini(town.end.y, _n)):
+		for x in range(maxi(town.position.x, 0), mini(town.end.x, _n)):
 			if _walk[y * _n + x] == 1:
 				_public.append(Vector2i(x, y))
 				if world.ground[y * _n + x] == WorldLayout.G.PLAZA:
@@ -116,6 +118,14 @@ func _find_sights(world: Dictionary) -> void:
 		if area.has_point(front) and _walk[front.y * _n + front.x] == 1:
 			_sights.append({"cells": [front], "go": I18n.t("идёт в гости к «%s»") % it.folder.name,
 				"at": I18n.t("стучится к соседям «%s»") % it.folder.name, "home": h})
+	# работа: мастерские, рынок, поля, рыбалка (w — как часто туда ходят: на рыбалку — немногие)
+	for s in world.get("work", []):
+		var cells: Array[Vector2i] = []
+		for c in s.cells:
+			if area.has_point(c) and _walk[c.y * _n + c.x] == 1:
+				cells.append(c)
+		if not cells.is_empty():
+			_sights.append({"cells": cells, "go": s.go, "at": s.at, "home": -1, "w": s.w})
 
 ## Дописать в массивы жителя, чьи files/looks/home/file_index уже добавлены.
 func _spawn(c: Vector2i, st: int) -> void:
@@ -448,9 +458,9 @@ func _out_tick(r: int, delta: float) -> void:
 ## Куда пойти по делам (и что там делать — в doing/_at жителя r).
 func _street_target(r: int) -> Vector2i:
 	var roll := _rng.randf()
-	if roll < 0.5 and not _sights.is_empty():
+	if roll < 0.6 and not _sights.is_empty():
 		var s: Dictionary = _sights[_rng.randi_range(0, _sights.size() - 1)]
-		if s.home != home[r]:  # не в гости к себе
+		if s.home != home[r] and _rng.randf() < s.get("w", 1.0):  # не в гости к себе
 			doing[r] = s.go
 			_at[r] = s.at
 			return s.cells[_rng.randi_range(0, s.cells.size() - 1)]

@@ -23,9 +23,18 @@ func test_english():
 	I18n.use("ru")
 	assert_eq(String(TranslationServer.translate("Настройки")), "Настройки", "в русском — без перевода")
 
+## Окрестности для разных seed: у берега океана, с рекой, с озёрами, сухо.
+const ENVS := [{"coast": Vector2(1, 0), "river": true}, {"lakes": 3, "river": false}, {"coast": Vector2(-0.6, 0.8), "lakes": 2},
+	{"river": true, "dry": 0.8}, {}]
+
+## Карта первого города мира seed s.
+func _city(s: int) -> Dictionary:
+	var root := FakeTree.generate(s)
+	return WorldLayout.build_city(root, root.children[0], s, ENVS[SEEDS.find(s) % ENVS.size()] if SEEDS.has(s) else {})
+
 func _w(s: int) -> Dictionary:
 	if not _worlds.has(s):
-		_worlds[s] = WorldLayout.build(FakeTree.generate(s), s)
+		_worlds[s] = _city(s)
 	return _worlds[s]
 
 func _all(f, out: Array) -> Array:
@@ -40,9 +49,78 @@ func test_same_seed_same_tree():
 	assert_eq(str(a.to_dict()), str(b.to_dict()))
 
 func test_same_seed_same_world():
-	var a := WorldLayout.build(FakeTree.generate(5), 5)
-	var b := WorldLayout.build(FakeTree.generate(5), 5)
-	assert_true(a.ground == b.ground and str(a.walls) == str(b.walls), "одинаковый seed — одинаковая деревня")
+	var a := _city(5)
+	var b := _city(5)
+	assert_true(a.ground == b.ground and str(a.walls) == str(b.walls) and str(a.work) == str(b.work), "одинаковый seed — одинаковый город")
+
+## Вода (озёра, река, океан) не задевает город; у берега — океан; всё рабочее (мастерские, поля, рыбалка)
+## достижимо от площади; к каждому месту работы ведёт дорога.
+func test_city_water_and_work():
+	for s in SEEDS:
+		var w := _w(s)
+		var n: int = w.n
+		var town: Rect2i = w.town
+		var water := 0
+		for i in n * n:
+			if w.ground[i] == WorldLayout.G.WATER:
+				water += 1
+				assert_false(town.has_point(Vector2i(i % n, i / n)), "seed %d: вода в городе" % s)
+		assert_gt(water, 0, "seed %d: вокруг города есть вода" % s)
+		if ENVS[SEEDS.find(s)].has("coast"):
+			var dir: Vector2 = ENVS[SEEDS.find(s)].coast
+			# самый дальний в сторону берега угол карты
+			var edge := Vector2i(n - 1 if dir.x > 0 else 0, n - 1 if dir.y > 0 else 0)
+			if absf(dir.y) < 0.01:
+				edge.y = n / 2
+			assert_eq(w.ground[edge.y * n + edge.x], WorldLayout.G.WATER, "seed %d: со стороны берега океан" % s)
+		# от площади по проходимым клеткам — всё рабочее
+		var top: Dictionary = w.items[0]
+		var p0 := Vector2i(((top.plaza.position - w.origin) / WorldLayout.TILE).round())
+		var pc := p0
+		for k in 64:
+			pc = p0 + Vector2i(k % 8, k / 8)
+			if w.walk[pc.y * n + pc.x] == 1:
+				break
+		var seen := {pc: true}
+		var q: Array[Vector2i] = [pc]
+		while not q.is_empty():
+			var c: Vector2i = q.pop_back()
+			for d in WorldLayout.DIRS4:
+				var nb: Vector2i = c + d
+				if nb.x >= 0 and nb.y >= 0 and nb.x < n and nb.y < n and not seen.has(nb) and w.walk[nb.y * n + nb.x] == 1:
+					seen[nb] = true
+					q.append(nb)
+		var kinds := {}
+		for wk in w.work:
+			for c in wk.cells:
+				assert_true(seen.has(c), "seed %d: до места «%s» не дойти" % [s, wk.at])
+			kinds[wk.go] = true
+		for go in ["идёт в кузницу", "идёт на рынок", "идёт в лавку"]:
+			assert_true(kinds.has(go), "seed %d: в городе есть «%s»" % [s, go])
+		var fishing := false
+		for go in kinds:
+			fishing = fishing or String(go).begins_with("идёт на рыбалку")
+		assert_true(fishing, "seed %d: есть где рыбачить" % s)
+
+## Жители ходят на работу и рыбачить — и не заходят куда нельзя.
+func test_residents_go_to_work():
+	var w := _w(1)
+	var homes := []
+	for h in w.items:
+		if h.kind == "house":
+			homes.append(h)
+	var t := Residents.new(homes, Rect2i(0, 0, w.n, w.n), w, 9)
+	var texts := ""
+	var ok := t.check()
+	for k in 2400:  # 8 минут игры
+		t.step(0.2)
+		ok = ok and t.check()
+		if k % 5 == 0:
+			for r in t.files.size():
+				texts += t.where(r) + "|"
+	assert_true(ok, "жители стоят только где можно")
+	assert_true(texts.contains("куёт") or texts.contains("горн") or texts.contains("строгает") or texts.contains("прилавк"), "работают в мастерских")
+	assert_true(texts.contains("рыбалк") or texts.contains("рыбачит") or texts.contains("удочку"), "кто-то ходит рыбачить")
 
 func test_tree_shape():
 	for s in SEEDS:
@@ -197,7 +275,7 @@ func test_hats():
 
 ## Посёлок первого города нового мира (свой, чтобы удаления не портили общие миры).
 func _town(s: int) -> Residents:
-	var w := WorldLayout.build(FakeTree.generate(s), s)
+	var w := _city(s)
 	for top in w.items:
 		if top.depth == 1 and top.kind == "city":
 			var homes := []

@@ -135,9 +135,10 @@ static func drawn_count(f) -> int:
 static func resident_radius(_file) -> float:
 	return WorldLayout.TILE * 0.4
 
-## prebuilt — уже построенный мир (из кэша Game), чтобы не строить заново.
-func setup(root, seed_value: int, prebuilt := {}) -> void:
-	world = prebuilt if not prebuilt.is_empty() else WorldLayout.build(root, seed_value)
+## Карта города city (папка верхнего уровня; null — первый) с окрестностями env (см. WorldLayout.build_city).
+## prebuilt — уже построенная карта (из кэша Game), чтобы не строить заново.
+func setup(root, seed_value: int, prebuilt := {}, city = null, env := {}) -> void:
+	world = prebuilt if not prebuilt.is_empty() else WorldLayout.build_city(root, city if city != null else root.children[0], seed_value, env)
 	items = world.items
 	for it in items:
 		by_folder[it.folder] = it
@@ -461,7 +462,9 @@ func town_of(it: Dictionary) -> Residents:
 			if h.kind == "house" and h.path.has(top.folder):
 				homes.append(h)
 		var area := Rect2i(top.cell, top.size)
-		if top.kind != "city":
+		if world.has("town"):
+			area = Rect2i(0, 0, world.n, world.n)  # по делам ходят и за город: в поле, на рыбалку
+		elif top.kind != "city":
 			area = area.grow(ROAM)
 		_towns[top.folder] = Residents.new(homes, area, world, absi(hash(top.folder.name)) + top.cell.x)
 		_towns[top.folder].night = night > 0.5
@@ -652,6 +655,12 @@ func _draw_labels() -> void:
 			_banner(it.plaza.get_center(), it.folder.name, 16 if it.depth == 1 else 13, z, _dim(it), 1.0 - 0.55 * near)
 		else:
 			_text(Vector2(it.pos.x, it.rect.end.y), it.folder.name, 12, z, 4.0, _dim(it))
+	# вывески мастерских — вблизи
+	if WorldLayout.TILE * z > 12.0:
+		for s in world.get("signs", []):
+			var p: Vector2 = world.origin + s.c * WorldLayout.TILE
+			if view.has_point(p):
+				_text(p - Vector2(0, WorldLayout.TILE * 0.6), I18n.t(s.text), 11, z, 0.0, false)
 	_draw_pins(view, z)
 	if focus != null:
 		_focus_frame(by_folder[focus].rect, z)

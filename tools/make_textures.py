@@ -1588,7 +1588,135 @@ def collage(path):
     img.save(path)
 
 
+# ---------------------------------------------------------------- работа: мастерские, поля, рыбалка
+def make_pier():
+    """Мостки и мосты: поперечные доски, бесшовно по обеим осям."""
+    name = "ground_pier.png"
+    px = blank(CLEAR)
+    f = planks(name, 0, 0, S, S, 8)
+    for y in range(S):
+        for x in range(S):
+            px[y][x] = f(x, y)
+    for (x, y) in ((4, 3), (59, 3), (4, 35), (59, 35)):  # гвозди
+        px[y][x] = hx("#3a3530")
+    save(name, px)
+
+
+def make_yard():
+    yard = [hx(c) for c in ("#8a7552", "#917b57", "#98825c", "#9e8861")]
+    ground("ground_yard.png", yard, [2, 3, 3, 2],
+           detail=both(pebbles(hx("#a8946e"), hx("#76634a"), 6), tufts(hx("#b59a52"), hx("#d6bd70"), 5)))
+
+
+def make_field():
+    """Пашня: тёмные борозды поперёк, ростки рядами."""
+    name = "ground_field.png"
+    rng = random.Random(name)
+    soil = [hx(c) for c in ("#5e4630", "#6b5036", "#76593c", "#806243")]
+    px = blank(CLEAR)
+    for y in range(S):
+        for x in range(S):
+            r = y % 16
+            t = 0.75 if r < 3 else (0.15 if r > 11 else 0.45)
+            t += (hrand(name, x // 3, y) - 0.5) * 0.25
+            px[y][x] = ramp(soil, t)
+    sprout = [hx(c) for c in ("#a6c56a", "#7fa24a", "#5c8235")]
+    for row in range(4):
+        y0 = row * 16 + 7
+        for k in range(8):
+            x0 = k * 8 + 3 + rng.randrange(2)
+            for (dx, dy, c) in ((0, 0, 1), (-1, -1, 0), (1, -1, 0), (0, -2, 0), (0, 1, 2)):
+                put(px, x0 + dx, y0 + dy, sprout[c])
+    save(name, px)
+
+
+def make_anvil():
+    name = "decor_anvil.png"
+    px = blank(CLEAR, 64)
+    part(px, circle(32, 34, 20), lin(12, 14, 52, 54, [hx("#9a7550"), hx("#82603f"), hx("#6a4c31")], 0.5, 0.5), OUT_D, 1)  # пень
+    part(px, circle(32, 34, 14), lambda x, y: ramp([hx("#b48d63"), hx("#a07a52")], hrand(name, int(math.hypot(x - 32, y - 34)) // 3)), None)
+    body = either(rect(16, 26, 48, 40, 2), rect(22, 22, 42, 44, 1))
+    part(px, body, lin(16, 22, 48, 44, IRON_LS, 0.6, 0.4), hx("#1c1b1a"), 1)
+    part(px, rect(46, 29, 56, 37, 3), lin(46, 29, 56, 37, IRON_LS, 0.5, 0.5), hx("#1c1b1a"), 1)  # рог
+    for x in range(19, 46):
+        px[27][x] = hx("#d8d6d0")  # блик на рабочей поверхности
+    save(name, px)
+
+
+def make_forge():
+    """Горн: каменное кольцо, внутри угли светятся."""
+    name = "decor_forge.png"
+    N, c = 128, 64
+    px = blank(CLEAR, N)
+
+    def stones(x, y):
+        k = int((math.atan2(y + 0.5 - c, x + 0.5 - c) % (2 * math.pi)) / (2 * math.pi) * 14)
+        return ramp(STONE_LS, 0.25 + 0.35 * ((x + y) / (2 * N)) + (hrand(name, k) - 0.5) * 0.3)
+    part(px, rect(16, 16, 112, 112, 18), stones, OUT_D, 2)
+
+    def coals(x, y):
+        d = math.hypot(x + 0.5 - c, y + 0.5 - c) / 34
+        h = hrand(name, "c", x // 5, y // 5)
+        hot = [hx("#fff1a8"), hx("#ffc04a"), hx("#f0782a"), hx("#a8341c"), hx("#3a2a24")]
+        return ramp(hot, d * 0.7 + h * 0.45)
+    part(px, rect(32, 32, 96, 96, 14), coals, hx("#2a2320"), 2)
+    save(name, px)
+
+
+def make_workbench():
+    name = "decor_workbench.png"
+    px = blank(CLEAR, 64)
+    part(px, rect(4, 16, 60, 46, 2), planks(name, 4, 16, 60, 46, 7, vert=False), OUT_D, 1)
+    part(px, rect(10, 24, 34, 30), hx("#d9c49a"), hx("#6a4c31"), 1)  # доска на верстаке
+    part(px, rect(38, 21, 56, 26, 1), lin(38, 21, 56, 26, IRON_LS, 1, 0), hx("#1c1b1a"), 1)  # пила
+    part(px, rect(40, 34, 46, 42, 1), hx("#7a5236"), OUT_D, 1)  # рубанок
+    for i in range(6):  # стружка
+        put(px, 14 + i * 5, 40 + (i % 2) * 2, hx("#e8d4a4"))
+    save(name, px)
+
+
+def make_logs():
+    name = "decor_logs.png"
+    px = blank(CLEAR, 64)
+    for (x0, y0) in ((8, 30), (8, 12), (8, 48)):
+        part(px, rect(x0 + 8, y0 - 7, 56, y0 + 7, 6), lin(16, y0 - 7, 56, y0 + 7, [hx("#8a6440"), hx("#73522f"), hx("#5c4024")], 0, 1), OUT_D, 1)
+        part(px, circle(x0 + 8, y0, 7), lambda x, y, x0=x0, y0=y0: hx("#d9b98a") if int(math.hypot(x - x0 - 8, y - y0)) % 3 else hx("#b8925e"), OUT_D, 1)
+    save(name, px)
+
+
+def make_boat():
+    """Лодка сверху (2x2 клетки): нос вверх, вёсла, скамья."""
+    name = "decor_boat.png"
+    N = 128
+    px = blank(CLEAR, N)
+    hull = (lambda x, y: abs(x + 0.5 - 64) < 24 * math.sqrt(max(0.0, 1 - ((y + 0.5 - 68) / 50) ** 2)) * (1 if y > 40 else (y - 18) / 22), (36, 14, 92, 120))
+    part(px, hull, planks(name, 40, 18, 88, 118, 6, vert=True), OUT_D, 2)
+    inner = (lambda x, y: abs(x + 0.5 - 64) < 18 * math.sqrt(max(0.0, 1 - ((y + 0.5 - 70) / 42) ** 2)) * (1 if y > 46 else max(0, (y - 30) / 16)), (44, 26, 84, 114))
+    part(px, inner, lin(44, 28, 84, 112, DARK_LS, 0.3, 0.7), None)
+    part(px, rect(46, 66, 82, 74), planks(name + "s", 46, 66, 82, 74, 8), OUT_D, 1)
+    for s in (-1, 1):  # вёсла
+        for i in range(28):
+            for w in (0, 1):
+                px[71 + i // 3 + w][64 + s * (20 + i)] = hx("#8a6440") if w == 0 else hx("#5c4024")
+        part(px, rect(64 + s * 50 - 4, 76, 64 + s * 50 + 4, 92, 3), hx("#a07a52"), OUT_D, 1)
+    save(name, px)
+
+
+def make_work():
+    make_pier()
+    make_yard()
+    make_field()
+    make_anvil()
+    make_forge()
+    make_workbench()
+    make_logs()
+    make_boat()
+
+
 def main():
+    if "--work" in sys.argv:  # только новые текстуры работы
+        make_work()
+        return
     make_ground()
     make_walls()
     make_floors()
@@ -1596,6 +1724,7 @@ def main():
     make_decor()
     make_village()
     make_furniture()
+    make_work()
     make_ui()
     if "--collage" in sys.argv:
         collage(sys.argv[sys.argv.index("--collage") + 1])

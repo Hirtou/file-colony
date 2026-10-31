@@ -11,7 +11,7 @@ const TYPE_EXT := [["jpg", "png", "gif", "webp", "psd"], ["docx", "txt", "rtf", 
 	["ttf", "otf", "woff"], ["pdf", "epub", "fb2", "djvu"], ["sav", "save", "dat"]]
 const TYPE_SIZE := [[1e5, 8e6], [1e4, 5e6], [5e7, 4e9], [3e6, 1.5e7], [1e6, 2e9], [1e6, 2e8], [1e3, 1e7],
 	[1e4, 2e7], [5e5, 1e8], [5e2, 2e5], [1e5, 3e8], [3e4, 2e6], [2e5, 5e7], [1e3, 5e7]]  # байты, мин/макс
-const MAX_DEPTH := 3
+const MAX_DEPTH := 4
 
 class FileItem:
 	var name: String
@@ -123,8 +123,8 @@ static func _folder(rng: RandomNumberGenerator, depth: int, parent: Folder) -> F
 static func _make_city(f: Folder, rng: RandomNumberGenerator, depth: int) -> void:
 	f.files.clear()
 	f.file_count = 0
-	# деревня: на верхнем уровне 6-11 домов/районов, в районе 3-6
-	for i in rng.randi_range(6, 11) if depth == 1 else rng.randi_range(3, 6):
+	# город: на верхнем уровне 9-14 домов/районов, в районе 3-6
+	for i in rng.randi_range(9, 14) if depth == 1 else rng.randi_range(3, 6):
 		f.children.append(_folder(rng, depth + 1, f))
 
 static func _file(rng: RandomNumberGenerator) -> FileItem:

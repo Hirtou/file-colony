@@ -99,6 +99,31 @@ func set_sun(dir: Vector3) -> void:
 	_mat.set_shader_parameter("sun", dir)
 	_atmo.set_shader_parameter("sun", dir)
 
+## Показать очертания городов (CitySites) — или спрятать (пустой массив).
+func show_sites(sites: Array) -> void:
+	var arr := PackedVector4Array()
+	for s in sites.slice(0, 32):
+		arr.append(Vector4(s.dir.x, s.dir.y, s.dir.z, s.r))
+	if not arr.is_empty():
+		_mat.set_shader_parameter("sites", arr)
+	_mat.set_shader_parameter("site_count", arr.size())
+	var tw := create_tween()
+	tw.tween_method(func(v: float): _mat.set_shader_parameter("sites_on", v),
+		_mat.get_shader_parameter("sites_on") if _mat.get_shader_parameter("sites_on") != null else 0.0,
+		1.0 if not arr.is_empty() else 0.0, 0.6)
+
+## Луна не мешает выбирать город: камера близко, луна бы закрыла полэкрана.
+func show_moon(v: bool) -> void:
+	if _moon:
+		_moon.visible = v
+
+func set_hover_site(i: int) -> void:
+	_mat.set_shader_parameter("site_hover", i)
+
+## Точка шара (координаты планеты) -> мир.
+func surface(dir: Vector3, lift := 1.0) -> Vector3:
+	return to_global(dir.normalized() * radius * lift)
+
 ## Нырок на планету: облака несутся быстрее.
 func spin_up() -> void:
 	_cloud_speed = 1.5
