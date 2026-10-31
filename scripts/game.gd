@@ -13,6 +13,7 @@ const DEFAULTS := {
 	"show_fps": false,
 	"day_night": true,
 	"shadows": true,
+	"weather": true,  # дождь в городах
 	"cam_speed": 600.0,
 	"time_speed": 0,  # индекс в TIME_SPEEDS
 	"music": 60.0,    # громкость музыки, 0..100

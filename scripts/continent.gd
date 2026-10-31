@@ -510,9 +510,24 @@ func _tick_time(delta: float) -> void:
 		hour -= 24.0
 		day += 1
 	map.time_scale = minf(speed, 10.0)  # жители на ×60 не носятся как угорелые
+	var rain := rain_of(Game.tree_seed(disk_name) + city.name.hash(), day, hour) if Game.settings.weather else 0.0
+	map.weather.amount = rain
 	map.set_daylight(night_of(hour), dusk_of(hour))
 	Game.play_music("space" if night_of(hour) > 0.6 else "village")  # ночью — тихий эмбиент
-	ui.set_clock(I18n.t("День %d · %02d:%02d · %s") % [day, int(hour), int(fmod(hour, 1.0) * 60.0), I18n.t(part_of_day(hour))], speed)
+	var sky := I18n.t(part_of_day(hour)) + (I18n.t(" · дождь") if rain > 0.3 else "")
+	ui.set_clock(I18n.t("День %d · %02d:%02d · %s") % [day, int(hour), int(fmod(hour, 1.0) * 60.0), sky], speed)
+
+## Сила дождя 0..1 в этот час этого дня: примерно каждый третий день идёт дождь на 2–5 часов,
+## начинается и кончается плавно (за полчаса). Для города и дня всегда одинаково.
+static func rain_of(seed_value: int, d: int, h: float) -> float:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed_value * 31 + d
+	if rng.randf() > 0.34:
+		return 0.0
+	var start := rng.randf_range(6.0, 19.0)
+	var span := rng.randf_range(2.0, 5.0)
+	var k := minf(h - start, start + span - h) / 0.5
+	return clampf(k, 0.0, 1.0) * rng.randf_range(0.6, 1.0)
 
 ## 0 — день, 1 — ночь; плавно на рассвете (5–7) и в сумерках (18–21).
 static func night_of(h: float) -> float:
@@ -635,6 +650,17 @@ func debug_view(view: String) -> void:
 	if view == "stats":
 		_open_stats()
 		return
+	if view == "rain":
+		# день и час, когда льёт: камера на улицы с жителями
+		for d in range(1, 60):
+			for h in range(7, 20):
+				if rain_of(Game.tree_seed(disk_name) + city.name.hash(), d, h) > 0.8:
+					day = d
+					hour = h
+					view = "work"
+					break
+			if view == "work":
+				break
 	if view == "river":
 		# река в городе: камера на воду внутри города (если река здесь течёт через город)
 		var w: Dictionary = map.world

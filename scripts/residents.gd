@@ -30,6 +30,7 @@ var state := PackedInt32Array()
 var route: Array = []               # оставшийся путь каждого: Array[Vector2i]
 var area: Rect2i                    # где можно гулять (клетки мира)
 var night := false                  # ночью все расходятся по домам и не выходят
+var rain := 0.0                     # сила дождя 0..1: в дождь реже выходят, чаще идут домой
 var _next: Array[Vector2i] = []
 var _t := PackedFloat32Array()
 var _wait := PackedFloat32Array()
@@ -311,7 +312,9 @@ func where(r: int) -> String:
 		State.WALK_HOME:
 			if carry[r] == 1:
 				return I18n.t("переезжает в «%s» с вещами") % homes[home[r]].folder.name
-			return I18n.t("спешит домой — темнеет" if night else "идёт домой")
+			if night:
+				return I18n.t("спешит домой — темнеет")
+			return I18n.t("бежит домой от дождя" if rain > 0.5 else "идёт домой")
 		State.WALK_OUT, State.OUT:
 			return I18n.t(doing[r])
 	return I18n.t(WHERE[state[r]])
@@ -398,7 +401,7 @@ func _home_tick(r: int, delta: float) -> void:
 	_wait[r] = _rng.randf_range(1.5, 5.0)
 	if night:
 		return  # спит
-	if not _public.is_empty() and _rng.randf() < 0.3:
+	if not _public.is_empty() and _rng.randf() < 0.3 * (1.0 - rain * 0.85):  # в дождь из дома почти не выходят
 		var path := find_path(r, cell[r], _street_target(r))
 		if not path.is_empty():
 			_busy.erase(cell[r])
@@ -437,7 +440,7 @@ func _out_tick(r: int, delta: float) -> void:
 	_end_chat(r)
 	if night:
 		_wait[r] = _rng.randf_range(0.2, 1.0)  # темнеет — скорее домой
-	elif _rng.randf() < 0.45:
+	elif _rng.randf() < 0.45 * (1.0 - rain * 0.75):  # дождь — чаще домой
 		var path := find_path(r, cell[r], _street_target(r))
 		if not path.is_empty():
 			route[r] = path

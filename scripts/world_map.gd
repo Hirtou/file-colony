@@ -125,6 +125,8 @@ var _hunts: Array = []        # идущие удаления (Hunt)
 var _hunt_node: Node2D
 const WILDLIFE := preload("res://scripts/wildlife.gd")  # напрямую: не зависит от кэша классов редактора
 var _wild: Node2D             # утки, круги от рыб, дым кузницы (Wildlife)
+const WEATHER := preload("res://scripts/weather.gd")
+var weather: Node2D           # дождь (weather.gd); силу задаёт continent
 var _clouds: Sprite2D         # тени облаков (днём)
 
 signal file_deleted(item: Dictionary)  # файл дома удалён (киллеры выстрелили)
@@ -183,6 +185,10 @@ func setup(root, seed_value: int, prebuilt := {}, city = null, env := {}) -> voi
 	add.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD  # свет складывается с цветом под ним
 	_glow_node.material = add
 	_glow_node.visible = false
+	weather = WEATHER.new()  # дождь — над всем, кроме подписей
+	weather.name = "Weather"
+	add_child(weather)
+	weather.setup(world)
 	_labels = _canvas("Labels", _draw_labels)
 	_glow_tex = _make_glow()
 	var n: int = world.n
@@ -533,6 +539,8 @@ func _process(delta: float) -> void:
 	queue_redraw()
 	if _wild and not _far:
 		_wild.update(delta, view_rect())
+	if weather:
+		weather.update(delta, view_rect(), _zoom())
 	# тени, декор и ночной свет неподвижны — нарисованы один раз кусками;
 	# жителей перерисовываем, только когда они сдвинулись
 	if _overlay and (stepped or _visible_towns.is_empty()):
@@ -559,8 +567,11 @@ func set_daylight(night_amount: float, dusk_amount: float) -> void:
 		_glow_node.modulate = Color(night, night, night)
 	for t in _towns.values():
 		t.night = night > 0.5
+		t.rain = weather.amount if weather else 0.0
 	if _clouds:
-		(_clouds.material as ShaderMaterial).set_shader_parameter("strength", 0.22 * (1.0 - night))  # ночью теней облаков нет
+		# ночью теней облаков нет; в дождь солнца нет — и резких теней тоже
+		var rain: float = weather.amount if weather else 0.0
+		(_clouds.material as ShaderMaterial).set_shader_parameter("strength", 0.22 * (1.0 - night) * (1.0 - rain * 0.7))
 
 func _zoom() -> float:
 	var cam := get_viewport().get_camera_2d()

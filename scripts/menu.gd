@@ -225,6 +225,7 @@ func _make_settings(root: Control) -> PanelContainer:
 	_check(v, "Показывать FPS", "show_fps")
 	_check(v, "Смена дня и ночи", "day_night")
 	_check(v, "Тени от домов и деревьев", "shadows")
+	_check(v, "Погода (дождь)", "weather")
 	var row := HBoxContainer.new()
 	v.add_child(row)
 	_label(row, "Скорость камеры", 16).custom_minimum_size.x = 170

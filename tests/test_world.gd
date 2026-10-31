@@ -480,3 +480,19 @@ func test_max_40_residents():
 	for s in SEEDS:
 		for it in _w(s).items:
 			assert_true(WorldMap.drawn_count(it.folder) <= 40)
+
+
+## Дождь: для города и дня всегда одинаков, сила 0..1, идёт не каждый день, но бывает.
+func test_rain():
+	var C := load("res://scripts/continent.gd")
+	var rainy := 0
+	for d in range(1, 61):
+		var top := 0.0
+		for h in 24:
+			var a: float = C.rain_of(1234, d, h + 0.5)
+			assert_between(a, 0.0, 1.0)
+			assert_eq(a, C.rain_of(1234, d, h + 0.5))
+			top = maxf(top, a)
+		if top > 0.0:
+			rainy += 1
+	assert_between(rainy, 8, 35, "дождь примерно в каждый третий день")
