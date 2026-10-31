@@ -207,6 +207,12 @@ func _unhandled_input(event: InputEvent) -> void:
 		if h.get("type") == "file":
 			var f = h.item.folder.files[h.index]
 			ui.show_tip("%s · %s\n%s" % [f.name, FakeTree.format_size(f.size), map.file_where(h.item, h.index)], event.position)
+		elif h.get("type") == "folder" and h.item.kind != "city":  # районы большие — над ними подсказка мешала бы
+			var it: Dictionary = h.item
+			var what: String = I18n.t("дом" if it.kind == "house" else "хижина (пустая папка)")
+			if it.kind == "house":
+				what += " · " + I18n.t("жителей: %d") % it.folder.files.size()
+			ui.show_tip("%s\n%s" % [it.folder.name, what], event.position)
 		else:
 			ui.hide_tip()
 	elif event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
