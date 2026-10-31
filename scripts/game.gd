@@ -16,6 +16,7 @@ const DEFAULTS := {
 	"cam_speed": 600.0,
 	"time_speed": 0,  # индекс в TIME_SPEEDS
 	"music": 60.0,    # громкость музыки, 0..100
+	"lang": "",       # ru / en; "" — по языку системы
 }
 const MUSIC_DIR := "res://assets/music/"
 const FADE := 1.5     # секунд на плавную смену трека
@@ -90,6 +91,12 @@ func cached_world(disk_name: String) -> Dictionary:
 func cache_world(disk_name: String, data: Dictionary) -> void:
 	_worlds["%s|%d" % [disk_name, salt]] = data
 
+## Забыть построенные миры (после смены языка имена папок другие).
+func forget_worlds() -> void:
+	_worlds.clear()
+	clipboard = null
+	clip_cut = false
+
 func time_speed() -> int:
 	return TIME_SPEEDS[settings.time_speed]
 
@@ -137,7 +144,9 @@ func set_setting(key: String, value) -> void:
 	_save()
 
 func apply() -> void:
+	I18n.use(settings.lang)
 	if DisplayServer.get_name() != "headless":
+		get_window().title = I18n.t("Файловая колония")
 		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN if settings.fullscreen else DisplayServer.WINDOW_MODE_WINDOWED)
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if settings.vsync else DisplayServer.VSYNC_DISABLED)
 	if _fps:
@@ -148,9 +157,17 @@ func apply() -> void:
 func _load() -> void:
 	var cfg := ConfigFile.new()
 	if cfg.load(SETTINGS_FILE) != OK:
+		_lang_arg()
 		return
 	for k in DEFAULTS:
 		settings[k] = cfg.get_value("settings", k, DEFAULTS[k])
+	_lang_arg()
+
+## Запуск с «-- --lang=en»: язык только на этот запуск (для скриншотов).
+func _lang_arg() -> void:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--lang="):
+			settings.lang = a.trim_prefix("--lang=")
 
 func _save() -> void:
 	var cfg := ConfigFile.new()

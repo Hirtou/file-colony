@@ -178,8 +178,8 @@ func _draw() -> void:
 ## «256 ГБ», «1 ТБ».
 static func format_size(gb: float) -> String:
 	if gb >= 1024:
-		return "%s ТБ" % str(snappedf(gb / 1024.0, 0.1)).trim_suffix(".0")
-	return "%d ГБ" % int(gb)
+		return "%s %s" % [str(snappedf(gb / 1024.0, 0.1)).trim_suffix(".0"), I18n.t("ТБ")]
+	return "%d %s" % [int(gb), I18n.t("ГБ")]
 
 ## Точка (в мировых координатах) над планетой?
 func has_point(p: Vector2) -> bool:

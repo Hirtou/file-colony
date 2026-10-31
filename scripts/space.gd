@@ -180,7 +180,7 @@ func _dive() -> void:
 	tw.tween_property(cam, "position", target.position, 0.9).set_trans(Tween.TRANS_SINE)
 	tw.tween_property(_fade, "color:a", 1.0, 0.45).set_delay(0.9)
 	tw.tween_property(_fade_text, "modulate:a", 1.0, 0.3).set_delay(1.0)
-	_fade_text.text = "Посадка на «%s»…" % target.disk_name
+	_fade_text.text = I18n.t("Посадка на «%s»…") % target.disk_name
 	tw.chain().tween_callback(_land)
 
 func _land() -> void:

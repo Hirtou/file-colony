@@ -6,6 +6,23 @@ const ROADS := [WorldLayout.G.STREET, WorldLayout.G.PATH, WorldLayout.G.PLAZA]
 
 var _worlds := {}
 
+func before_all():
+	I18n.use("ru")  # проверки ниже — по русским строкам, какой бы язык ни стоял в настройках
+
+## Английский: имена папок и надписи на английском, тот же seed — то же дерево.
+func test_english():
+	var ru := FakeTree.generate(5)
+	I18n.use("en")
+	var en := FakeTree.generate(5)
+	assert_eq(en.children.size(), ru.children.size(), "язык не меняет устройство мира")
+	assert_true(FakeTree.FOLDER_NAMES_EN.has(en.children[0].name.split(" ")[0]), "папки по-английски: " + en.children[0].name)
+	assert_eq(I18n.t("Копировать"), "Copy")
+	assert_eq(I18n.t("Посадка на «%s»…") % "C:", "Landing on “C:”…")
+	assert_eq(FakeTree.format_size(2048), "2.0 KB")
+	assert_eq(TranslationServer.translate("Настройки"), "Settings", "кнопки переводятся сами")
+	I18n.use("ru")
+	assert_eq(String(TranslationServer.translate("Настройки")), "Настройки", "в русском — без перевода")
+
 func _w(s: int) -> Dictionary:
 	if not _worlds.has(s):
 		_worlds[s] = WorldLayout.build(FakeTree.generate(s), s)

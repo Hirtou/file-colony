@@ -32,7 +32,7 @@ func _ready() -> void:
 	cam.make_current()
 	cam.speed = Game.settings.cam_speed
 	_speed_i = Game.settings.time_speed
-	ui.set_planet("Планета %s · %s" % [disk_name, Planet.format_size(disk_gb)])
+	ui.set_planet(I18n.t("Планета %s · %s") % [disk_name, Planet.format_size(disk_gb)])
 	ui.back_pressed.connect(exit_requested.emit)
 	ui.crumb_pressed.connect(_on_crumb)
 	ui.search_changed.connect(_on_search)
@@ -45,7 +45,7 @@ func _ready() -> void:
 	ui.tree.show_on_map.connect(_tree_to_map)
 	ui.speed_pressed.connect(func(): _speed_i = (_speed_i + 1) % SPEEDS.size())
 	# постройка мира занимает пару секунд — сначала показываем надпись
-	ui.show_loading("Строим мир «%s»…" % disk_name)
+	ui.show_loading(I18n.t("Строим мир «%s»…") % disk_name)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var seed_value := Game.tree_seed(disk_name)
@@ -75,7 +75,7 @@ func go_to(new_path: Array, instant := false, fly := true) -> void:
 		if f != root and f.is_city():
 			map.expanded[f] = true
 			map.focus = f
-	var names := ["Космос"]
+	var names := [I18n.t("Космос")]
 	for f in path:
 		names.append(f.name)
 	ui.set_path(names)
@@ -187,14 +187,14 @@ func _open_menu(at: Vector2) -> void:
 		entries.append(["Копировать", M.COPY])
 		entries.append(["Вырезать (переселить)", M.CUT])
 		if clip != null:
-			entries.append([("Переселить «%s» в этот дом" if Game.clip_cut else "Вставить «%s» в этот дом") % clip.name, M.PASTE])
+			entries.append([I18n.t("Переселить «%s» в этот дом" if Game.clip_cut else "Вставить «%s» в этот дом") % clip.name, M.PASTE])
 		entries.append(["Семейное древо", M.FAMILY])
 		if not map.is_hunted(h.item, h.index):
 			entries.append(["Удалить", M.DELETE])
 	elif h.get("type") == "folder":
 		entries.append([h.item.folder.name, -1])
 		if h.item.kind == "house":
-			entries.append([("Переселить «%s» сюда" if Game.clip_cut else "Вставить «%s» сюда") % clip.name if clip != null else "Вставить (буфер пуст)", M.PASTE])
+			entries.append([I18n.t("Переселить «%s» сюда" if Game.clip_cut else "Вставить «%s» сюда") % clip.name if clip != null else "Вставить (буфер пуст)", M.PASTE])
 		if h.item.kind == "city":
 			entries.append(["Открыть", M.OPEN])
 		entries.append(["Семейное древо", M.FAMILY])
@@ -229,9 +229,9 @@ func _on_type(t: int) -> void:
 	if t < 0:
 		ui.toast("Подсветка типов выключена")
 	elif n.x == 0:
-		ui.toast("Файлов типа «%s» на этой планете нет" % FakeTree.TYPE_NAMES[t], Color(1.0, 0.8, 0.5))
+		ui.toast(I18n.t("Файлов типа «%s» на этой планете нет") % I18n.t(FakeTree.TYPE_NAMES[t]), Color(1.0, 0.8, 0.5))
 	else:
-		ui.toast("«%s»: %d файлов в %d домах — ищи метки на карте" % [FakeTree.TYPE_NAMES[t], n.x, n.y],
+		ui.toast(I18n.t("«%s»: %d файлов в %d домах — ищи метки на карте") % [I18n.t(FakeTree.TYPE_NAMES[t]), n.x, n.y],
 			WorldMap.TYPE_COLORS[t].lightened(0.3))
 
 ## Семейное древо выбранного (файл, папка) или текущего уровня.
@@ -270,7 +270,7 @@ func _copy(item: Dictionary, index: int) -> void:
 	Game.clipboard = f.copy_as(f.name)
 	Game.clip_cut = false
 	ui.set_clipboard(Game.clipboard)
-	ui.toast("Скопировано: %s" % f.name, Color(0.7, 1.0, 0.7))
+	ui.toast(I18n.t("Скопировано: %s") % f.name, Color(0.7, 1.0, 0.7))
 
 ## Вырезать: в буфере сам файл; «Вставить» в другой дом — он туда переедет.
 func _cut(item: Dictionary, index: int) -> void:
@@ -278,7 +278,7 @@ func _cut(item: Dictionary, index: int) -> void:
 	Game.clipboard = f
 	Game.clip_cut = true
 	ui.set_clipboard(f, true)
-	ui.toast("Вырезано: %s — выбери дом и вставь (Ctrl+V)" % f.name, Color(1.0, 0.85, 0.5))
+	ui.toast(I18n.t("Вырезано: %s — выбери дом и вставь (Ctrl+V)") % f.name, Color(1.0, 0.85, 0.5))
 
 ## Дом, где сейчас живёт файл (на этой планете); {} — не нашёлся.
 func _house_of(file) -> Dictionary:
@@ -310,10 +310,10 @@ func _paste(item: Dictionary) -> void:
 		Game.clipboard = null
 		Game.clip_cut = false
 		ui.set_clipboard(null)
-		ui.toast("«%s» переезжает в «%s»" % [moved, item.folder.name], Color(0.7, 0.9, 1.0))
+		ui.toast(I18n.t("«%s» переезжает в «%s»") % [moved, item.folder.name], Color(0.7, 0.9, 1.0))
 		return
 	var f = map.paste(item, Game.clipboard)
-	ui.toast("Вставлено в «%s»: %s" % [item.folder.name, f.name], Color(0.7, 0.9, 1.0))
+	ui.toast(I18n.t("Вставлено в «%s»: %s") % [item.folder.name, f.name], Color(0.7, 0.9, 1.0))
 	_refresh(item)
 
 ## Удалить файл: за жителем приходят киллеры с мушкетами (сам файл удалится после выстрела).
@@ -324,10 +324,10 @@ func _delete(item: Dictionary, index: int) -> void:
 		Game.clip_cut = false
 		ui.set_clipboard(null)
 	if map.hunt(item, index):
-		ui.toast("За «%s» выехали киллеры…" % f.name, Color(1.0, 0.55, 0.45))
+		ui.toast(I18n.t("За «%s» выехали киллеры…") % f.name, Color(1.0, 0.55, 0.45))
 	elif not map.is_hunted(item, index):
 		map.remove_file(item, f)  # житель не нарисован (за «+N») — удаляем сразу
-		ui.toast("Удалено: %s" % f.name, Color(1.0, 0.55, 0.45))
+		ui.toast(I18n.t("Удалено: %s") % f.name, Color(1.0, 0.55, 0.45))
 
 func _on_file_deleted(item: Dictionary) -> void:
 	ui.toast("Файл удалён", Color(1.0, 0.55, 0.45))
@@ -370,19 +370,19 @@ func _show_info() -> void:
 	var it: Dictionary = h.item
 	if h.type == "file":
 		var f = it.folder.files[h.index]
-		ui.show_info([["Имя", f.name], ["Тип", "файл (%s)" % FakeTree.TYPE_NAMES[f.type]],
+		ui.show_info([["Имя", f.name], ["Тип", I18n.t("файл (%s)") % I18n.t(FakeTree.TYPE_NAMES[f.type])],
 			["Файлов", "1"], ["Размер", FakeTree.format_size(f.size)], ["Глубина", str(it.depth + 1)],
-			["Дом", it.folder.name], ["Семья", "%s «%s»" % [FamilyTree.word("kid", f), it.folder.name]],
+			["Дом", it.folder.name], ["Семья", I18n.t("%s «%s»") % [FamilyTree.word("kid", f), it.folder.name]],
 			["Сейчас", map.file_where(it, h.index)]])
 		return
 	var kinds := {"city": "город", "house": "дом", "hut": "хижина (пустая папка)"}
-	var rows := [["Имя", it.folder.name], ["Тип", kinds[it.kind]], ["Файлов", str(it.folder.total_files())],
+	var rows := [["Имя", it.folder.name], ["Тип", I18n.t(kinds[it.kind])], ["Файлов", str(it.folder.total_files())],
 		["Размер", FakeTree.format_size(it.folder.total_size())], ["Глубина", str(it.depth)]]
-	rows.append(["Семья", "%s «%s», детей %d" % [FamilyTree.word("kid", it.folder), it.parent.name,
+	rows.append(["Семья", I18n.t("%s «%s», детей %d") % [FamilyTree.word("kid", it.folder), it.parent.name,
 		FamilyTree.kids(it.folder).size()]])
 	if it.kind == "house":
 		var o := map.house_out(it)
-		rows.append(["На улице", "%d из %d" % [o.x, o.y]])
+		rows.append(["На улице", I18n.t("%d из %d") % [o.x, o.y]])
 	ui.show_info(rows)
 
 func _process(delta: float) -> void:
@@ -449,7 +449,7 @@ func _tick_time(delta: float) -> void:
 	map.time_scale = minf(speed, 10.0)  # жители на ×60 не носятся как угорелые
 	map.set_daylight(night_of(hour), dusk_of(hour))
 	Game.play_music("space" if night_of(hour) > 0.6 else "village")  # ночью — тихий эмбиент
-	ui.set_clock("День %d · %02d:%02d · %s" % [day, int(hour), int(fmod(hour, 1.0) * 60.0), part_of_day(hour)], speed)
+	ui.set_clock(I18n.t("День %d · %02d:%02d · %s") % [day, int(hour), int(fmod(hour, 1.0) * 60.0), I18n.t(part_of_day(hour))], speed)
 
 ## 0 — день, 1 — ночь; плавно на рассвете (5–7) и в сумерках (18–21).
 static func night_of(h: float) -> float:
@@ -481,11 +481,11 @@ func _build_index() -> void:
 	_index.clear()
 	for it in map.items:
 		var kinds := {"city": "город", "house": "дом", "hut": "хижина"}
-		_index.append({"text": it.folder.name, "low": String(it.folder.name).to_lower(), "where": kinds[it.kind],
+		_index.append({"text": it.folder.name, "low": String(it.folder.name).to_lower(), "where": I18n.t(kinds[it.kind]),
 			"color": Color(0.85, 0.7, 0.45), "type": "folder", "item": it, "index": 0})
 		for i in it.folder.files.size():
 			var f = it.folder.files[i]
-			_index.append({"text": f.name, "low": String(f.name).to_lower(), "where": "дом «%s»" % it.folder.name,
+			_index.append({"text": f.name, "low": String(f.name).to_lower(), "where": I18n.t("дом «%s»") % it.folder.name,
 				"color": WorldMap.TYPE_COLORS[f.type], "type": "file", "item": it, "index": i})
 
 ## Поиск: текст (от 2 букв) и/или фильтры (тип, размер, город). Все найденные файлы светятся на карте.

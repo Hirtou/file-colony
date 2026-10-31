@@ -1,10 +1,9 @@
 class_name FamilyTree
 extends PanelContainer
-## Вкладка «Семейное древо» — настоящее дерево. Внизу корень-диск (родоначальник), от него растут
-## ветви-папки (толще — где больше потомков), на концах — кроны из листьев-файлов (лист цвета типа).
-## Папка — родитель (отец или мать), всё, что в ней лежит, — её дети: файл — сын или дочь.
-## Колёсико — приближение, перетаскивание — сдвиг, клик — карточка справа (путь до корня светится
-## золотом), двойной клик — приблизить. Поиск по роду, «Только эта ветка», «Показать на карте».
+## Вкладка «Семейное древо» — родословная сверху вниз. Наверху родоначальник-диск, ниже поколения:
+## папка — родитель (отец или мать), всё, что в ней лежит, — её дети. Файлы дома висят под ним столбиком.
+## Колёсико — приближение, перетаскивание — сдвиг, клик — карточка справа (путь до родоначальника светится
+## золотом), «−/+» под папкой — свернуть/развернуть детей, двойной клик — приблизить.
 ## Клавиши: ↑ родитель, ↓ первый ребёнок, ←/→ братья и сёстры, Enter — на карту.
 
 signal show_on_map(person)   # Folder или FileItem
@@ -24,6 +23,7 @@ var _card_info: Label
 var _card_branch: Button
 var _card_up: Button
 var _whole: Button
+var _fold: Button
 var _search: LineEdit
 var _found_label: Label
 var _found: Array = []
@@ -37,7 +37,7 @@ static func female(p) -> bool:
 	return absi(String(p.name).hash()) % 2 == 1
 
 static func word(kind: String, p) -> String:
-	return WORDS[kind][int(female(p))]
+	return I18n.t(WORDS[kind][int(female(p))])
 
 ## Дети папки: сначала подпапки, потом файлы.
 static func kids(f) -> Array:
@@ -85,6 +85,10 @@ func _ready() -> void:
 	_found_label.add_theme_font_size_override("font_size", 13)
 	_found_label.modulate.a = 0.7
 	head.add_child(_found_label)
+	_fold = Button.new()
+	_fold.tooltip_text = "Свёрнутые ветки раскрываются «+» под папкой"
+	_fold.pressed.connect(func(): _view.fold_all(_view.collapsed.is_empty()))
+	head.add_child(_fold)
 	var fit := Button.new()
 	fit.text = "Всё дерево в кадр"
 	fit.pressed.connect(func(): _view.fit())
@@ -105,7 +109,7 @@ func _ready() -> void:
 	body.add_child(_view)
 	body.add_child(_make_card())
 	var hint := Label.new()
-	hint.text = "Колёсико — приблизить · перетаскивание — двигать · клик — выбрать · двойной клик — приблизить к нему · ↑ родитель · ↓ дети · ←/→ братья и сёстры · Enter — на карту"
+	hint.text = "Колёсико — приблизить · перетаскивание — двигать · клик — выбрать · «−/+» — свернуть ветку · ↑ родитель · ↓ дети · ←/→ братья и сёстры · Enter — на карту"
 	hint.add_theme_font_size_override("font_size", 12)
 	hint.modulate.a = 0.5
 	v.add_child(hint)
@@ -151,6 +155,7 @@ func _label(parent: Control, size: int, col: Color) -> Label:
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", col)
+	l.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED  # тут имена и готовый текст
 	parent.add_child(l)
 	return l
 
@@ -161,10 +166,18 @@ func open(root, person) -> void:
 	_index(root)  # дерево могло поменяться (удаления, вставки, переселения)
 	show()
 	await get_tree().process_frame  # размер окна известен — от него зависит «всё в кадр»
+	_view.opened.clear()
+	_view.root = root
+	_view.focus_on(person)  # раскрыта только ветка выбранного — остальное под «+»
 	_view.build(root)
 	_whole.visible = false
+	_sync_fold()
 	_view.fit(true)
 	_go(person, true)
+
+## Кнопка «Свернуть всё» / «Развернуть всё» — по тому, есть ли свёрнутые ветки.
+func _sync_fold() -> void:
+	_fold.text = I18n.t("Свернуть всё" if _view.collapsed.is_empty() else "Развернуть всё")
 
 func _index(f) -> void:
 	for c in f.children:
@@ -214,7 +227,7 @@ static func _main_type(f) -> int:
 ## Кто он своему родителю: «сын «Проекты»», у диска — «родоначальник».
 func role(p) -> String:
 	var par = parent_of(p)
-	return "родоначальник" if par == null else "%s «%s»" % [word("kid", p), par.name]
+	return I18n.t("родоначальник") if par == null else I18n.t("%s «%s»") % [word("kid", p), par.name]
 
 ## Показать дерево только этой папки (или всего диска).
 func _show_branch(f) -> void:
@@ -223,15 +236,17 @@ func _show_branch(f) -> void:
 	var keep = _view.selected
 	_view.build(f)
 	_whole.visible = f != _root
+	_sync_fold()
 	_view.fit(true)
 	_go(keep if _view.has(keep) else f, true)
 
-## Выбрать человека, лететь к нему, обновить карточку.
+## Выбрать человека, лететь к нему, обновить карточку. Свёрнутые ветки на пути к нему раскрываются.
 func _go(p, instant := false) -> void:
 	if p == null:
 		return
-	if not _view.has(p):
+	if not _view.has(p) and not _view.reveal(p):
 		_show_branch(_root)
+		_view.reveal(p)
 	_view.select(p)
 	_view.fly_to(p, instant)
 	_update_card()
@@ -248,18 +263,18 @@ func _update_card() -> void:
 	if is_folder(p):
 		var k := kids(p)
 		var sons := k.filter(func(x): return not female(x)).size()
-		lines.append("папка · детей %d" % k.size())
-		lines.append("сыновей %d, дочерей %d" % [sons, k.size() - sons])
-		lines.append("всего потомков-файлов: %d" % p.total_files())
+		lines.append(I18n.t("папка · детей %d") % k.size())
+		lines.append(I18n.t("сыновей %d, дочерей %d") % [sons, k.size() - sons])
+		lines.append(I18n.t("всего потомков-файлов: %d") % p.total_files())
 	else:
-		lines.append("%s · %s" % [FakeTree.TYPE_NAMES[p.type], FakeTree.format_size(p.size)])
+		lines.append("%s · %s" % [I18n.t(FakeTree.TYPE_NAMES[p.type]), FakeTree.format_size(p.size)])
 	var par = parent_of(p)
 	if par != null:
-		lines.append("братьев и сестёр: %d" % (kids(par).size() - 1))
+		lines.append(I18n.t("братьев и сестёр: %d") % (kids(par).size() - 1))
 	var chain := [p]
 	while parent_of(chain[0]) != null:
 		chain.push_front(parent_of(chain[0]))
-	lines.append("род: " + " › ".join(chain.map(func(x): return x.name)))
+	lines.append(I18n.t("род: ") + " › ".join(chain.map(func(x): return x.name)))
 	_card_info.text = "\n".join(lines)
 	_card_branch.visible = is_folder(p) and kids(p).size() > 0 and p != _view.root
 	_card_up.visible = par != null
@@ -311,37 +326,51 @@ func _find_next() -> void:
 			if String(p.name).to_lower().contains(q):
 				_found.append(p)
 	if _found.is_empty():
-		_found_label.text = "нет"
+		_found_label.text = I18n.t("нет")
 		return
 	_found_i = (_found_i + 1) % _found.size()
-	_found_label.text = "%d из %d" % [_found_i + 1, _found.size()]
+	_found_label.text = I18n.t("%d из %d") % [_found_i + 1, _found.size()]
 	_go(_found[_found_i])
 	_search.grab_focus()  # Enter ещё раз — следующий
 
 
-## Само дерево: раскладка и рисование. Мир дерева: корень в (0, 0), растёт вверх (y < 0).
+## Сама родословная: раскладка и рисование. Мир: родоначальник наверху в (x, 0), поколения вниз (y > 0).
 class TreeView extends Control:
-	const LEVEL := 190.0      # высота яруса ветвей
-	const UNIT := 64.0        # ширина «места» на ярусе
-	const LEAF := 26.0        # шаг листьев в кроне
-	const BARK := Color(0.36, 0.24, 0.14)
-	const BARK_DARK := Color(0.16, 0.1, 0.06)
+	const COL := 196.0        # ширина места под одну карточку
+	const ROW := 150.0        # шаг поколений
+	const CW := 176.0         # карточка папки
+	const CH := 64.0
+	const FW := 150.0         # карточка файла (в столбике под домом)
+	const FH := 38.0
+	const FSTEP := 46.0       # шаг файлов в столбике
+	const STACK := 6          # сколько файлов видно в столбике, пока его не развернули
+	const MIN_ZOOM := 0.03
+	const LINE := Color(0.62, 0.48, 0.3)
 	const GOLD := Color(1.0, 0.85, 0.4)
+	const CARD := Color(0.17, 0.13, 0.09)
+	const CARD_FILE := Color(0.12, 0.11, 0.1)
+	const MALE := Color(0.45, 0.62, 0.85)
+	const FEMALE := Color(0.88, 0.55, 0.68)
 
 	var owner_tree: FamilyTree
 	var root                  # папка — корень показанного дерева
 	var selected = null
 	var hovered = null
-	var nodes := {}           # человек -> {pos, parent, folder, r, w (толщина ветви), crown}
-	var order: Array = []     # папки сверху вниз по глубине — для рисования веток
-	var leaves: Array = []    # файлы
+	var nodes := {}           # человек -> {pos (середина верха карточки), parent, folder, rect, stack}
+	var order: Array = []     # все показанные люди
+	var toggles := {}         # папка -> центр кнопки «−/+» (мир)
+	var more := {}            # папка -> Rect2 карточки «ещё N…» под столбиком
+	var collapsed := {}       # папки со свёрнутыми детьми
+	var opened := {}          # папки, у которых в столбике показаны все файлы
+	var rows := 1             # поколений на экране
 	var zoom := 1.0
 	var offset := Vector2.ZERO  # где на экране точка (0, 0) мира
+	var _w := {}              # ширина поддерева в колонках
 	var _drag := false
 	var _moved := 0.0
 	var _tw: Tween
 	var _font := ThemeDB.fallback_font
-
+	var _box := StyleBoxFlat.new()
 	var _frame = null         # что держать в кадре при смене размера: "fit" или человек; null — двигали руками
 
 	func _init() -> void:
@@ -357,80 +386,143 @@ class TreeView extends Control:
 	func has(p) -> bool:
 		return nodes.has(p)
 
-	const SPAN := 2.8         # веер ветвей, рад (~160°, вверх)
-	const MIN_ZOOM := 0.02    # дерево диска большое — отдалять можно сильно
-	var _outer := 300.0       # радиус купола кроны
-	var _depth := 1           # самая глубокая папка
-
-	## Разложить дерево папки f куполом: ствол в (0, 0), ветви веером вверх, папки-дома (кроны листьев)
-	## — по наружной дуге, промежуточные папки — на своих ярусах. Угол ветви — по её ширине.
+	## Разложить родословную папки f: дети ровно под родителем, у каждого поддерева своя полоса колонок.
 	func build(f) -> void:
 		root = f
 		nodes.clear()
 		order.clear()
-		leaves.clear()
-		var widths := {}
-		_measure(f, widths)
-		_depth = maxi(1, _max_depth(f, 0))
-		_outer = maxf(widths[f] * UNIT / SPAN, LEVEL * 1.6)
-		_place(f, null, 0.0, 0, widths)
-		order.sort_custom(func(a, b): return nodes[a].pos.y < nodes[b].pos.y)
+		toggles.clear()
+		more.clear()
+		_w.clear()
+		rows = 1
+		_width(f)
+		_place(f, null, 0.0, 0)
 		queue_redraw()
 
-	func _max_depth(f, d: int) -> int:
-		var m := d
-		for c in f.children:
-			m = maxi(m, _max_depth(c, d + 1))
-		return m
-
-	## Точка ветви: угол — доля ширины, радиус — ярус (дом с кроной — на краю купола).
-	func _polar(x_units: float, total: float, depth: int, is_house: bool) -> Vector2:
-		if depth == 0:
-			return Vector2.ZERO
-		var a := -PI / 2 - SPAN / 2 + SPAN * (x_units / total)
-		var r := _outer if is_house else _outer * 0.82 * pow(float(depth) / _depth, 0.85)
-		return Vector2(cos(a), sin(a)) * r
-
-	func _crown_r(k: int) -> float:
-		return 0.0 if k == 0 else LEAF * sqrt(float(k)) * 0.95 + LEAF * 0.7
-
-	func _measure(f, widths: Dictionary) -> float:
+	func _width(f) -> float:
 		var w := 0.0
-		for c in f.children:
-			w += _measure(c, widths)
-		w = maxf(w, (_crown_r(f.files.size()) * 2.0 + 24.0) / UNIT)
+		if not collapsed.has(f):
+			for c in f.children:
+				w += _width(c)
+			if not f.children.is_empty() and not f.files.is_empty():
+				w += 1.0  # своя колонка под столбик файлов
 		w = maxf(w, 1.0)
-		widths[f] = w
+		_w[f] = w
 		return w
 
-	func _place(f, par, x0: float, depth: int, widths: Dictionary) -> void:
-		var w: float = widths[f]
-		var total_w: float = widths[root]
-		var pos := _polar(x0 + w / 2.0, total_w, depth, f.children.is_empty())
-		var total: int = f.total_files() + f.children.size()
-		nodes[f] = {"pos": pos, "parent": par, "folder": true, "r": 22.0,
-			"w": clampf(4.0 + sqrt(float(total)) * 2.6, 5.0, 60.0)}
+	func _place(f, par, x0: float, depth: int) -> void:
+		var y := depth * ROW
+		rows = maxi(rows, depth + 1)
+		var w: float = _w[f]
+		var cx := x0 + w * COL / 2.0
+		var open := not collapsed.has(f)
+		var stack_x := cx  # середина колонки столбика файлов
+		if open and not f.children.is_empty():
+			var x := x0
+			for c in f.children:
+				_place(c, f, x, depth + 1)
+				x += _w[c] * COL
+			var lo: float = nodes[f.children[0]].pos.x
+			var hi: float = nodes[f.children[-1]].pos.x
+			if not f.files.is_empty():
+				stack_x = x0 + (w - 0.5) * COL
+				hi = stack_x
+			cx = (lo + hi) / 2.0  # родитель — над серединой своих детей
+		nodes[f] = {"pos": Vector2(cx, y), "parent": par, "folder": true,
+			"rect": Rect2(cx - CW / 2.0, y, CW, CH)}
 		order.append(f)
-		var x := x0
-		for c in f.children:
-			_place(c, f, x, depth + 1, widths)
-			x += widths[c]
-		# крона: листья по спирали подсолнуха снаружи от конца ветки
+		if not kids(f).is_empty():
+			toggles[f] = Vector2(cx, y + CH)
+		if open and not f.files.is_empty():
+			_place_stack(f, stack_x, y + CH + 22.0 if f.children.is_empty() else y + ROW)
+
+	## Файлы — столбиком под домом, слева общая «нить».
+	func _place_stack(f, sx: float, top: float) -> void:
+		var spine := sx - CW / 2.0 + 12.0
+		var left := sx - CW / 2.0 + 26.0
 		var k: int = f.files.size()
-		if k > 0:
-			var cr := _crown_r(k)
-			var out := pos.normalized() if pos.length() > 1.0 else Vector2.UP
-			var center := pos + out * (cr + 16.0)
-			if not f.children.is_empty():
-				center = pos + out.rotated(-0.9) * (cr + 30.0)  # у папки с подпапками — крона сбоку
-			nodes[f].crown = [center, cr]
-			for i in k:
-				var a := i * 2.39996  # золотой угол
-				var d := LEAF * 0.95 * sqrt(float(i) + 0.5)
-				var lp := center + Vector2(cos(a), sin(a)) * d
-				nodes[f.files[i]] = {"pos": lp, "parent": f, "folder": false, "r": 13.0, "w": 2.0,
-					"rot": float(absi(hash(f.files[i].name)) % 628) / 100.0}
-				leaves.append(f.files[i])
+		var n := k if opened.has(f) or k <= STACK + 1 else STACK
+		var last := top
+		for i in n:
+			var file = f.files[i]
+			var py := top + i * FSTEP
+			nodes[file] = {"pos": Vector2(left + FW / 2.0, py), "parent": f, "folder": false,
+				"rect": Rect2(left, py, FW, FH)}
+			order.append(file)
+			last = py + FH / 2.0
+		if n < k:
+			more[f] = Rect2(left, top + n * FSTEP, FW, FH * 0.8)
+			last = top + n * FSTEP + FH * 0.4
+		nodes[f].stack = [spine, top, last]
+
+	static func kids(f) -> Array:
+		return f.children + f.files
+
+	## Раскрыть свёрнутые ветки до человека p (внутри показанного корня). false — он не из этой ветки.
+	func reveal(p) -> bool:
+		var chain := []
+		var q = p
+		while q != null and q != root:
+			q = owner_tree.parent_of(q)
+			if q != null:
+				chain.append(q)
+		if q != root:
+			return false
+		for a in chain:
+			collapsed.erase(a)
+		if not (p is FakeTree.Folder):
+			var f = owner_tree.parent_of(p)
+			if f.files.find(p) >= STACK:
+				opened[f] = true
+		build(root)
+		return nodes.has(p)
+
+	## Свернуть все ветки, кроме пути от корня до p (сам p раскрыт); p = null — видно только первое поколение.
+	func focus_on(p) -> void:
+		collapsed.clear()
+		_fold(root)
+		collapsed.erase(root)
+		var q = p
+		while q != null:
+			collapsed.erase(q)
+			q = owner_tree.parent_of(q)
+
+	func _fold(f) -> void:
+		if not f.children.is_empty() or not f.files.is_empty():
+			collapsed[f] = true
+		for c in f.children:
+			_fold(c)
+
+	## Свернуть всё / развернуть всё.
+	func fold_all(fold := true) -> void:
+		if fold:
+			focus_on(null)
+		else:
+			collapsed.clear()
+		build(root)
+		if selected != null and not nodes.has(selected):
+			selected = root
+			owner_tree._update_card()
+		owner_tree._sync_fold()
+		fit()
+
+	## Свернуть/развернуть ветку f (или весь столбик файлов), не сдвигая её на экране.
+	func _toggle(f, stack := false) -> void:
+		var before := to_screen(nodes[f].pos)
+		if stack:
+			opened[f] = true
+		elif collapsed.has(f):
+			collapsed.erase(f)
+		else:
+			collapsed[f] = true
+		build(root)
+		offset += before - to_screen(nodes[f].pos)
+		_frame = null
+		if selected != null and not nodes.has(selected):
+			selected = f
+			owner_tree._update_card()
+		owner_tree._sync_fold()
+		queue_redraw()
 
 	# --- камера дерева ---
 
@@ -445,11 +537,13 @@ class TreeView extends Control:
 		_frame = "fit"
 		if nodes.is_empty() or size.x < 10:
 			return
-		var r := Rect2(nodes[root].pos, Vector2.ZERO)
+		var r: Rect2 = nodes[root].rect
 		for p in nodes:
-			r = r.expand(nodes[p].pos)
-		r = r.grow(60).expand(Vector2(r.get_center().x, trunk_len() + 60))  # и ствол с землёй
-		var z := clampf(minf(size.x / r.size.x, size.y / r.size.y), MIN_ZOOM, 2.0)
+			r = r.merge(nodes[p].rect)
+		for f in more:
+			r = r.merge(more[f])
+		r = r.grow(40)
+		var z := clampf(minf(size.x / r.size.x, size.y / r.size.y), MIN_ZOOM, 1.4)
 		_animate(z, size / 2 - r.get_center() * z, instant)
 
 	## Лететь к человеку: он по центру, крупно.
@@ -457,8 +551,8 @@ class TreeView extends Control:
 		if not nodes.has(p):
 			return
 		_frame = p
-		var z := maxf(zoom, 1.1 if nodes[p].folder else 1.6)
-		_animate(z, size / 2 - nodes[p].pos * z, instant)
+		var z := maxf(zoom, 1.0)
+		_animate(z, size / 2 - nodes[p].rect.get_center() * z, instant)
 
 	func _animate(z: float, off: Vector2, instant: bool) -> void:
 		if _tw:
@@ -477,24 +571,27 @@ class TreeView extends Control:
 		selected = p
 		queue_redraw()
 
+	## Что под точкой экрана: человек, {toggle: папка}, {more: папка} или null.
 	func _pick(s: Vector2):
 		var w := to_world(s)
-		var best = null
-		var bd := INF
+		var hit := maxf(12.0, 8.0 / zoom)
+		for f in toggles:
+			if w.distance_to(toggles[f]) < hit and zoom > 0.25:
+				return {"toggle": f}
+		for f in more:
+			if more[f].has_point(w):
+				return {"more": f}
 		for p in nodes:
-			var n: Dictionary = nodes[p]
-			var d: float = w.distance_to(n.pos)
-			if d < n.r + 4.0 / zoom and d < bd:
-				bd = d
-				best = p
-		return best
+			if nodes[p].rect.has_point(w):
+				return p
+		return null
 
 	func _gui_input(e: InputEvent) -> void:
 		if e is InputEventMouseButton:
 			if e.button_index == MOUSE_BUTTON_WHEEL_UP or e.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 				if e.pressed:
 					var k := 1.15 if e.button_index == MOUSE_BUTTON_WHEEL_UP else 1.0 / 1.15
-					var nz := clampf(zoom * k, MIN_ZOOM, 4.0)
+					var nz := clampf(zoom * k, MIN_ZOOM, 3.0)
 					var wp := to_world(e.position)
 					zoom = nz
 					offset = e.position - wp * zoom  # приближаем к курсору
@@ -507,14 +604,19 @@ class TreeView extends Control:
 					_moved = 0.0
 					if e.double_click:
 						var p = _pick(e.position)
-						if p != null:
+						if p != null and not (p is Dictionary):
 							zoom = maxf(zoom, 1.0)
 							owner_tree._go(p)
 				else:
 					_drag = false
 					if _moved < 6.0:
 						var p = _pick(e.position)
-						if p != null and zoom < 0.9:
+						if p is Dictionary:
+							if p.has("toggle"):
+								_toggle(p.toggle)
+							else:
+								_toggle(p.more, true)
+						elif p != null and zoom < 0.6:
 							owner_tree._go(p)  # издалека — подлететь
 						elif p != null:
 							_select_only(p)
@@ -527,6 +629,8 @@ class TreeView extends Control:
 				queue_redraw()
 			else:
 				var h = _pick(e.position)
+				if h is Dictionary:
+					h = null
 				if h != hovered:
 					hovered = h
 					tooltip_text = "" if h == null else "%s\n%s" % [h.name, owner_tree.role(h)]
@@ -540,42 +644,41 @@ class TreeView extends Control:
 	# --- рисование ---
 
 	func _draw() -> void:
-		draw_rect(Rect2(Vector2.ZERO, size), Color(0.06, 0.08, 0.1))
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.06, 0.07, 0.09))
 		if nodes.is_empty():
 			return
-		var view := Rect2(to_world(Vector2.ZERO), size / zoom).grow(80)
-		_draw_ground()
+		var view := Rect2(to_world(Vector2.ZERO), size / zoom).grow(40)
+		_draw_rows()
 		var gold := _gold_path()
-		# ветви: от родителя к ребёнку, толстые снизу
-		for f in order:
-			var n: Dictionary = nodes[f]
-			if n.parent == null:
+		# линии родства: от родителя вниз, по общей перекладине, к ребёнку
+		for p in order:
+			var n: Dictionary = nodes[p]
+			if n.folder and n.parent != null:
+				_elbow(nodes[n.parent], n, gold.has(p), view)
+		for p in order:
+			if nodes[p].has("stack"):
+				_stack(p, gold, view)
+		for p in order:
+			if view.intersects(nodes[p].rect):
+				_card(p, gold.has(p))
+		for f in more:
+			if view.intersects(more[f]):
+				_more(f)
+		for f in toggles:
+			if view.has_point(toggles[f]):
+				_toggle_btn(f)
+
+	## Полосы поколений с подписью слева.
+	func _draw_rows() -> void:
+		for d in rows:
+			var top := to_screen(Vector2(0, d * ROW - 18.0)).y
+			var bottom := to_screen(Vector2(0, d * ROW + CH + 18.0)).y
+			if bottom < 0 or top > size.y:
 				continue
-			var a: Vector2 = nodes[n.parent].pos
-			_branch(a, n.pos, n.w, gold.has(f), view)
-		# веточки к листьям
-		for f in leaves:
-			var n: Dictionary = nodes[f]
-			if not view.has_point(n.pos):
-				continue
-			var tip: Vector2 = nodes[n.parent].pos
-			if zoom > 0.35:
-				draw_line(to_screen(tip.lerp(n.pos, 0.35)), to_screen(n.pos), Color(BARK, 0.6), maxf(1.0, 1.5 * zoom))
-		for f in leaves:
-			if view.has_point(nodes[f].pos):
-				_leaf(f, gold.has(f))
-		for f in order:
-			if view.has_point(nodes[f].pos):
-				_knot(f, gold.has(f))
-		# подписи папок — постоянного экранного размера
-		for f in order:
-			var n: Dictionary = nodes[f]
-			if not view.has_point(n.pos) or (zoom < 0.3 and f != root and n.w < 18.0):
-				continue
-			_caption(to_screen(n.pos) + Vector2(0, 24 * minf(zoom, 1.5) + 4), f.name, 13 if f != root else 16, Color(1.0, 0.93, 0.78))
-		if hovered != null and nodes.has(hovered):
-			var hp := to_screen(nodes[hovered].pos)
-			draw_arc(hp, (nodes[hovered].r + 6.0) * zoom, 0, TAU, 32, Color(1, 1, 1, 0.7), 2.0, true)
+			draw_rect(Rect2(0, top, size.x, bottom - top), Color(1, 1, 1, 0.025 if d % 2 == 0 else 0.045))
+			if bottom - top > 14:
+				var label := I18n.t("Поколение %d") % (d + 1)
+				draw_string(_font, Vector2(8, (top + bottom) / 2 + 5), label, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Color(1, 1, 1, 0.3))
 
 	## Путь от корня до выбранного — светится золотом.
 	func _gold_path() -> Dictionary:
@@ -586,114 +689,128 @@ class TreeView extends Control:
 			p = nodes[p].parent
 		return out
 
-	func _branch(a: Vector2, b: Vector2, w: float, lit: bool, view: Rect2) -> void:
-		if not view.intersects(Rect2(a, Vector2.ZERO).expand(b).grow(w)):
+	func _lw() -> float:
+		return maxf(1.5, 2.5 * zoom)
+
+	func _elbow(a: Dictionary, b: Dictionary, lit: bool, view: Rect2) -> void:
+		var top: Vector2 = a.pos + Vector2(0, CH)
+		var end: Vector2 = b.pos
+		var mid := (top.y + end.y) / 2.0
+		if not view.intersects(Rect2(top, Vector2.ZERO).expand(end).grow(4)):
 			return
-		# изгиб: из родителя — по его направлению от ствола, в ребёнка — по направлению ребёнка
-		var dist := a.distance_to(b)
-		var da := a.normalized() if a.length() > 1.0 else Vector2.UP
-		var db := b.normalized() if b.length() > 1.0 else Vector2.UP
-		if b.y > a.y and a.length() < 1.0:
-			da = Vector2.DOWN  # корни растут вниз
-			db = (b - a).normalized()
-		var c1 := a + da * dist * 0.45
-		var c2 := b - db * dist * 0.35
-		var pts := PackedVector2Array()
-		var steps := 14
-		for i in steps + 1:
-			var t := float(i) / steps
-			var u := 1.0 - t
-			pts.append(to_screen(a * u * u * u + c1 * 3 * u * u * t + c2 * 3 * u * t * t + b * t * t * t))
-		var least := clampf(w * 0.22, 1.5, 12.0)  # издалека толстые ветви не превращаются в нитки
-		for i in steps:
-			var t := float(i) / steps
-			var wi := maxf(lerpf(w * 1.15, w * 0.7, t) * zoom, least)
-			draw_line(pts[i], pts[i + 1], BARK_DARK, wi + 3.0)
-		for i in steps:
-			var t := float(i) / steps
-			var wi := maxf(lerpf(w * 1.15, w * 0.7, t) * zoom, least)
-			draw_line(pts[i], pts[i + 1], BARK, wi)
-			draw_circle(pts[i + 1], wi * 0.5, BARK)
+		var pts := PackedVector2Array([to_screen(top), to_screen(Vector2(top.x, mid)), to_screen(Vector2(end.x, mid)), to_screen(end)])
+		draw_polyline(pts, LINE, _lw())
 		if lit:
-			draw_polyline(pts, Color(GOLD, 0.85), maxf(2.0, w * 0.25 * zoom), true)
+			draw_polyline(pts, GOLD, _lw() + 1.5)
 
-	## Корень-диск: земля и корни под стволом.
-	func _draw_ground() -> void:
-		var base: Vector2 = nodes[root].pos
-		var w: float = nodes[root].w
-		var trunk := trunk_len()
-		var foot := base + Vector2(0, trunk)
-		var g := to_screen(foot)
-		var all := Rect2(to_world(Vector2.ZERO), size / zoom).grow(400)
-		draw_rect(Rect2(Vector2(0, g.y), Vector2(size.x, maxf(0.0, size.y - g.y))), Color(0.12, 0.09, 0.06))
-		draw_line(Vector2(0, g.y), Vector2(size.x, g.y), Color(0.28, 0.4, 0.18), maxf(2.0, 6.0 * zoom))
-		# ствол и корни
-		for k in 5:
-			var dx := (k - 2) * w * 1.4
-			_branch(foot + Vector2(dx * 0.15, -4), foot + Vector2(dx * 2.2, trunk * 0.35 + absf(dx) * 0.4), w * 0.4, false, all)
-		_draw_trunk(foot, base, w, all)
-
-	## Ствол: от земли к развилке, внизу толще.
-	func _draw_trunk(foot: Vector2, top: Vector2, w: float, view: Rect2) -> void:
-		if not view.intersects(Rect2(top, Vector2.ZERO).expand(foot).grow(w * 2)):
-			return
-		var a := to_screen(foot)
-		var b := to_screen(top)
-		var kz := maxf(zoom, 18.0 / w)  # ствол издалека не тоньше ~18 px
-		draw_line(a, b, BARK_DARK, (w * 1.6 + 6.0) * kz)
-		var pts := PackedVector2Array([a + Vector2(-w * 1.0, 0) * kz, a + Vector2(w * 1.0, 0) * kz,
-			b + Vector2(w * 0.6, 0) * kz, b + Vector2(-w * 0.6, 0) * kz])
-		draw_colored_polygon(pts, BARK)
-		draw_circle(b, w * 0.6 * kz, BARK)
-		for k in 3:  # трещинки коры
-			var x := (k - 1) * w * 0.4
-			draw_line(a.lerp(b, 0.15) + Vector2(x, 0) * zoom, a.lerp(b, 0.75) + Vector2(x * 0.6, 0) * zoom, BARK_DARK, maxf(1.0, 2.0 * zoom))
-		if selected != null:
-			draw_line(a, b, Color(GOLD, 0.85), maxf(2.0, w * 0.25 * zoom))
-
-	func trunk_len() -> float:
-		return maxf(80.0, _outer * 0.3)
-
-	## Узел-папка: деревянный медальон с портретом старшего.
-	func _knot(f, lit: bool) -> void:
+	## Столбик файлов: вертикальная нить и отводы к каждой карточке.
+	func _stack(f, gold: Dictionary, view: Rect2) -> void:
 		var n: Dictionary = nodes[f]
-		var c := to_screen(n.pos)
-		var r: float = n.r * zoom * (1.3 if f == root else 1.0)
-		var sel: bool = f == selected
-		if sel:
-			draw_circle(c, r + 9.0, Color(GOLD, 0.35))
-		draw_circle(c, r + 3.0, GOLD if sel or lit else BARK_DARK)
-		draw_circle(c, r, Color(0.45, 0.31, 0.18))
-		draw_circle(c, r * 0.82, Color(0.2, 0.15, 0.1))
-		if r > 9.0:
-			Pawn.draw(self, c + Vector2(0, r * 0.12), r * 1.5, owner_tree.look_of(f), Residents.Facing.DOWN, 0.0, false, r > 18.0)
-
-	## Лист-файл цвета типа; вблизи — лицо жителя и имя.
-	func _leaf(f, lit: bool) -> void:
-		var n: Dictionary = nodes[f]
-		var c := to_screen(n.pos)
-		var r: float = n.r * zoom
-		var col: Color = WorldMap.TYPE_COLORS[f.type].lerp(Color(0.3, 0.6, 0.25), 0.35)
-		var sel: bool = f == selected
-		if r < 3.0:
-			draw_circle(c, maxf(r, 1.5), col)
+		var sx: float = n.stack[0]
+		var top: float = n.stack[1]
+		var last: float = n.stack[2]
+		var start: float = n.pos.y + CH
+		var from := Vector2(sx, start)
+		if not f.children.is_empty():
+			# у папки с подпапками столбик в своей колонке — нить с общей перекладины
+			var mid := start + (ROW - CH) / 2.0
+			draw_polyline(PackedVector2Array([to_screen(Vector2(n.pos.x, start)), to_screen(Vector2(n.pos.x, mid)),
+				to_screen(Vector2(sx, mid))]), LINE, _lw())
+			from = Vector2(sx, mid)
+		if not view.intersects(Rect2(from, Vector2.ZERO).expand(Vector2(sx + 20, last))):
 			return
-		var d := Vector2.from_angle(n.rot)
-		var s := d.orthogonal()
-		var pts := PackedVector2Array([c + d * r * 1.25, c + s * r * 0.75, c - d * r * 1.1, c - s * r * 0.75])
-		if sel:
-			draw_circle(c, r * 1.6, Color(GOLD, 0.4))
-		var outline := PackedVector2Array([c + d * (r * 1.25 + 2), c + s * (r * 0.75 + 2), c - d * (r * 1.1 + 2), c - s * (r * 0.75 + 2)])
-		draw_colored_polygon(outline, GOLD if sel or lit else Color(0.1, 0.18, 0.08))
-		draw_colored_polygon(pts, col)
-		draw_line(c - d * r * 0.9, c + d * r * 1.0, col.darkened(0.3), maxf(1.0, r * 0.08))  # прожилка
-		if r > 12.0:
-			Pawn.draw(self, c + Vector2(0, r * 0.15), r * 1.25, owner_tree.look_of(f), Residents.Facing.DOWN, 0.0, false, r > 22.0)
-		if r > 16.0 or sel:
-			_caption(c + Vector2(0, r * 1.2 + 4), f.name, 11, Color(1, 1, 1, 0.9))
+		draw_line(to_screen(from), to_screen(Vector2(sx, last)), LINE, _lw())
+		var lit_y := -1.0
+		for x in f.files:
+			if not nodes.has(x):
+				break
+			var r: Rect2 = nodes[x].rect
+			var y := r.position.y + FH / 2.0
+			draw_line(to_screen(Vector2(sx, y)), to_screen(Vector2(r.position.x, y)), LINE, _lw())
+			if gold.has(x):
+				lit_y = y
+				draw_line(to_screen(Vector2(sx, y)), to_screen(Vector2(r.position.x, y)), GOLD, _lw() + 1.5)
+		if more.has(f):
+			var y: float = more[f].position.y + more[f].size.y / 2.0
+			draw_line(to_screen(Vector2(sx, y)), to_screen(Vector2(more[f].position.x, y)), LINE, _lw())
+		if lit_y > 0.0:
+			draw_line(to_screen(from), to_screen(Vector2(sx, lit_y)), GOLD, _lw() + 1.5)
 
-	func _caption(at: Vector2, text: String, size_px: int, col: Color) -> void:
-		var w := _font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px).x
-		var p := at + Vector2(-w / 2, size_px)
-		draw_string_outline(_font, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, 4, Color(0, 0, 0, 0.85))
-		draw_string(_font, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size_px, col)
+	func _rounded(r: Rect2, fill: Color, border: Color, bw: float, radius: float) -> void:
+		_box.bg_color = fill
+		_box.border_color = border
+		_box.set_border_width_all(int(maxf(1.0, bw)))
+		_box.set_corner_radius_all(int(maxf(0.0, radius)))
+		draw_style_box(_box, r)
+
+	## Карточка: портрет, имя, кто он. Рамка — цвет пола, у выбранного и его предков — золото.
+	func _card(p, lit: bool) -> void:
+		var n: Dictionary = nodes[p]
+		var r := Rect2(to_screen(n.rect.position), n.rect.size * zoom)
+		var sel: bool = p == selected
+		var accent: Color = GOLD if p == root else (FEMALE if FamilyTree.female(p) else MALE)
+		var border := GOLD if sel or lit else accent.darkened(0.35)
+		var fill: Color = CARD if n.folder else CARD_FILE
+		if r.size.y < 7.0:  # совсем издалека — просто плашка
+			draw_rect(r, border if sel or lit else (accent.darkened(0.5) if n.folder else WorldMap.TYPE_COLORS[p.type].darkened(0.3)))
+			return
+		if sel:
+			_rounded(r.grow(6.0 * zoom), Color(GOLD, 0.25), Color(GOLD, 0.0), 0.0, 12.0 * zoom)
+		_rounded(r, fill, border, (3.0 if sel else 2.0) * zoom, 8.0 * zoom)
+		var h := r.size.y
+		var pc := Vector2(r.position.x + h * 0.5, r.position.y + h * 0.5)  # портрет слева
+		var pr := h * 0.36
+		if not n.folder:
+			draw_rect(Rect2(r.position + Vector2(2, 2) * zoom, Vector2(5.0 * zoom, h - 4.0 * zoom)), WorldMap.TYPE_COLORS[p.type])
+			pc.x += 4.0 * zoom
+		draw_circle(pc, pr + 2.0 * zoom, accent.darkened(0.2))
+		draw_circle(pc, pr, Color(0.08, 0.07, 0.06))
+		if pr > 5.0:
+			Pawn.draw(self, pc + Vector2(0, pr * 0.15), pr * 1.45, owner_tree.look_of(p), Residents.Facing.DOWN, 0.0, false, pr > 14.0)
+		var tx := pc.x + pr + 8.0 * zoom
+		var tw := r.end.x - tx - 6.0 * zoom
+		var sub := ""
+		if p == root:
+			sub = I18n.t("родоначальник")
+		elif n.folder:
+			sub = I18n.t("%s · детей %d") % [FamilyTree.word("parent", p), kids(p).size()]
+		else:
+			sub = "%s · %s" % [FamilyTree.word("kid", p), FakeTree.format_size(p.size)]
+		var big := 15.0 if n.folder else 12.0
+		_text(Vector2(tx, r.position.y + h * 0.46), p.name, int(big * zoom), Color(1.0, 0.95, 0.85), tw)
+		_text(Vector2(tx, r.position.y + h * 0.8), sub, int(big * 0.75 * zoom), Color(accent, 0.85), tw)
+
+	## «ещё N…» под длинным столбиком — клик раскрывает весь.
+	func _more(f) -> void:
+		var r := Rect2(to_screen(more[f].position), more[f].size * zoom)
+		_rounded(r, Color(0.1, 0.1, 0.1, 0.8), LINE.darkened(0.3), zoom, 6.0 * zoom)
+		var t := I18n.t("ещё %d…") % (f.files.size() - STACK)
+		_text(r.get_center() + Vector2(0, 4.0 * zoom), t, int(12 * zoom), Color(1, 1, 1, 0.7), r.size.x, true)
+
+	## Кнопка «−» под раскрытой папкой, «+N» под свёрнутой.
+	func _toggle_btn(f) -> void:
+		var c := to_screen(toggles[f])
+		var rad := 9.0 * zoom
+		if rad < 3.0:
+			return
+		var shut := collapsed.has(f)
+		var t := "+%d" % kids(f).size() if shut else "−"
+		var fs := int(12 * zoom)
+		var w := maxf(rad * 2.0, _font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 8.0 * zoom)
+		var r := Rect2(c - Vector2(w / 2.0, rad), Vector2(w, rad * 2.0))
+		_rounded(r, Color(0.3, 0.22, 0.12) if shut else CARD, GOLD if shut else LINE, 1.5 * zoom, rad)
+		_text(c + Vector2(0, fs * 0.36), t, fs, Color.WHITE, w, true)
+
+	## Текст в ширину maxw (длинное — с «…»); fs < 6 — не рисуем.
+	func _text(at: Vector2, text: String, fs: int, col: Color, maxw: float, center := false) -> void:
+		if fs < 6:
+			return
+		var t := text
+		if _font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > maxw:
+			while t.length() > 1 and _font.get_string_size(t + "…", HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x > maxw:
+				t = t.left(-1)
+			t += "…"
+		var x := at.x
+		if center:
+			x -= _font.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x / 2.0
+		draw_string(_font, Vector2(x, at.y), t, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)

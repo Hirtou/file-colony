@@ -1,7 +1,7 @@
 extends SceneTree
 ## Запускает главную сцену (из настроек проекта) и сохраняет screenshots/latest.png
 ## Аргументы после --: --rot=<рад> (поворот всех планет), --out=<имя.png>,
-## --view=map|city|house (сразу на материк C:)
+## --view=map|city|house (сразу на материк C:), --lang=ru|en
 
 func _initialize() -> void:
 	var rot := NAN

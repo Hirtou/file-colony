@@ -13,6 +13,7 @@ var _seed: LineEdit
 var _count: SpinBox
 var _preview: Label
 var _tw: Tween
+static var _reopen := ""  # после смены языка меню перестраивается — снова открыть эту панель
 
 func _ready() -> void:
 	var sun_layer := CanvasLayer.new()
@@ -28,9 +29,13 @@ func _ready() -> void:
 	_planet.show_caption = false
 	add_child(_planet)
 	_planet.position = _planet_pos(false)
-	_planet.setup("Файловая колония", 210.0, 0.0)
+	_planet.setup(I18n.t("Файловая колония"), 210.0, 0.0)
 	_build_ui()
 	Game.play_music("space")
+	if _reopen != "":
+		_toggle(_reopen)
+		_tw.custom_step(5.0)
+		_reopen = ""
 
 func _planet_pos(panel_open: bool) -> Vector2:
 	var vp := get_viewport_rect().size
@@ -120,7 +125,7 @@ func _update_preview() -> void:
 	var parts := []
 	for d in Game.sandbox_disks(_seed_value(), int(_count.value)):
 		parts.append("%s %s" % [d.name, Planet.format_size(d.gb)])
-	_preview.text = "Планеты: " + ", ".join(parts)
+	_preview.text = I18n.t("Планеты: ") + ", ".join(parts)
 
 func _start_sandbox() -> void:
 	Game.use_sandbox(_seed_value(), int(_count.value))
@@ -136,6 +141,16 @@ func _make_settings(root: Control) -> PanelContainer:
 	var p := _panel(root)
 	var v := _vbox(p)
 	_label(v, "Настройки", 26)
+	var rl := HBoxContainer.new()
+	v.add_child(rl)
+	_label(rl, "Язык / Language", 16).custom_minimum_size.x = 170
+	var lang := OptionButton.new()
+	lang.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
+	for n in I18n.LANG_NAMES:
+		lang.add_item(n)
+	lang.selected = I18n.LANGS.find(I18n.lang())
+	lang.item_selected.connect(_set_lang)
+	rl.add_child(lang)
 	_check(v, "Полный экран", "fullscreen")
 	_check(v, "Вертикальная синхронизация", "vsync")
 	_check(v, "Показывать FPS", "show_fps")
@@ -176,6 +191,13 @@ func _make_settings(root: Control) -> PanelContainer:
 	row2.add_child(speed)
 	_button(v, "Готово", _toggle.bind(""))
 	return p
+
+## Сменить язык: выдуманные миры строятся заново (имена папок на новом языке), меню — тоже.
+func _set_lang(i: int) -> void:
+	Game.set_setting("lang", I18n.LANGS[i])
+	Game.forget_worlds()
+	_reopen = "settings"
+	get_tree().reload_current_scene()
 
 func _check(parent: Control, text: String, key: String) -> void:
 	var c := CheckBox.new()

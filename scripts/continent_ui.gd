@@ -219,7 +219,7 @@ func _ready() -> void:
 		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.add_theme_font_size_override("font_size", 12)
-		b.tooltip_text = "Показать на карте все файлы типа «%s»" % FakeTree.TYPE_NAMES[t]
+		b.tooltip_text = I18n.t("Показать на карте все файлы типа «%s»") % I18n.t(FakeTree.TYPE_NAMES[t])
 		var tight := StyleBoxEmpty.new()  # строки легенды низкие, как раньше
 		tight.content_margin_left = 2
 		tight.content_margin_top = 0
@@ -406,7 +406,8 @@ func show_info(rows: Array) -> void:
 		c.queue_free()
 	for i in rows.size():
 		var l := Label.new()
-		l.text = rows[i][1] if i == 0 else "%s: %s" % rows[i]
+		l.text = rows[i][1] if i == 0 else "%s: %s" % [I18n.t(rows[i][0]), rows[i][1]]
+		l.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED  # имена и уже переведённый текст
 		if i == 0:
 			l.add_theme_font_size_override("font_size", 18)
 		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -418,7 +419,7 @@ func show_files(rows: Array) -> void:
 		c.queue_free()
 	_files_title.visible = not rows.is_empty()
 	_files_scroll.visible = not rows.is_empty()
-	_files_title.text = "Жители дома (%d):" % rows.size()
+	_files_title.text = I18n.t("Жители дома (%d):") % rows.size()
 	for i in rows.size():
 		var line := HBoxContainer.new()
 		line.add_child(Dot.new(rows[i][2]))
@@ -475,7 +476,7 @@ func show_results(rows: Array, total := -1) -> void:
 	if total == 0:
 		_found_label.text = "Ничего не нашлось"
 	elif total > 0:
-		_found_label.text = "Найдено: %d%s — подсвечены на карте" % [total, " (показаны первые %d)" % rows.size() if rows.size() < total else ""]
+		_found_label.text = I18n.t("Найдено: %d%s — подсвечены на карте") % [total, I18n.t(" (показаны первые %d)") % rows.size() if rows.size() < total else ""]
 	_results_scroll.custom_minimum_size.y = mini(rows.size(), 10) * 25
 	for c in _results.get_children():
 		c.queue_free()

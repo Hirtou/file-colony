@@ -38,10 +38,10 @@ static func copy_name(folder: Folder, file_name: String) -> String:
 		used[f.name] = true
 	if not used.has(file_name):
 		return file_name  # в другой папке имя свободно — как в проводнике
-	var n := base + " - копия" + ext
+	var n := base + I18n.t(" - копия") + ext
 	var k := 2
 	while used.has(n):
-		n = "%s - копия (%d)%s" % [base, k, ext]
+		n = "%s%s (%d)%s" % [base, I18n.t(" - копия"), k, ext]
 		k += 1
 	return n
 
@@ -84,6 +84,9 @@ const SYL := ["ka", "ra", "to", "mi", "su", "len", "dor", "va", "ze", "nu", "bek
 const FOLDER_NAMES := ["Документы", "Проекты", "Фото", "Музыка", "Видео", "Загрузки", "Игры", "Работа",
 	"Учёба", "Архив", "Отчёты", "Отпуск", "Семья", "Книги", "Программы", "Рисунки", "Заметки", "Старое",
 	"Разное", "Сканы", "Черновики", "Шаблоны", "Фильмы", "Сериалы", "Курсы", "Код", "Сайт", "Ресурсы"]
+const FOLDER_NAMES_EN := ["Documents", "Projects", "Photos", "Music", "Videos", "Downloads", "Games", "Work",
+	"Study", "Archive", "Reports", "Vacation", "Family", "Books", "Programs", "Drawings", "Notes", "Old",
+	"Misc", "Scans", "Drafts", "Templates", "Movies", "Series", "Courses", "Code", "Website", "Assets"]
 
 ## Seed дерева по имени диска.
 static func seed_for(disk_name: String) -> int:
@@ -138,7 +141,7 @@ static func _folder_name(rng: RandomNumberGenerator, parent: Folder) -> String:
 	var used := {}
 	for c in parent.children:
 		used[c.name] = true
-	var n: String = FOLDER_NAMES[rng.randi_range(0, FOLDER_NAMES.size() - 1)]
+	var n: String = (FOLDER_NAMES_EN if I18n.en() else FOLDER_NAMES)[rng.randi_range(0, FOLDER_NAMES.size() - 1)]
 	var k := 2
 	var base := n
 	while used.has(n):
@@ -155,8 +158,8 @@ static func format_size(bytes: int) -> String:
 		v /= 1024.0
 		i += 1
 	if i == 0 or v >= 100.0:
-		return "%d %s" % [int(v), units[i]]
-	return "%.1f %s" % [v, units[i]]
+		return "%d %s" % [int(v), I18n.t(units[i])]
+	return "%.1f %s" % [v, I18n.t(units[i])]
 
 static func _name(rng: RandomNumberGenerator) -> String:
 	var s := ""

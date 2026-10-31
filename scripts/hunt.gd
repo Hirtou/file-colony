@@ -27,7 +27,7 @@ var victim_look: Dictionary
 var mode := V.FLEE
 var status: String:  # что сейчас с жертвой — для панели
 	get:
-		return STATUS[mode]
+		return I18n.t(STATUS[mode])
 var killers: Array = []
 var shot := false                      # прозвучал первый выстрел — файл удаляется
 var applied := false                   # карта уже удалила файл

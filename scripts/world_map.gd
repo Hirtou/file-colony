@@ -477,7 +477,7 @@ func file_where(item: Dictionary, index: int) -> String:
 		if h.file == item.folder.files[index] and h.fall < 0.0:
 			return h.status  # убегает / прячется / попался
 	var r := resident_id(item, index)
-	return town_of(item).where(r) if r >= 0 else "в доме (за «+N»)"
+	return town_of(item).where(r) if r >= 0 else I18n.t("в доме (за «+N»)")
 
 ## Где сейчас житель файла; Vector2.INF — не нарисован (за «+N»).
 func resident_pos(item: Dictionary, index: int) -> Vector2:

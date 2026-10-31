@@ -33,7 +33,8 @@
 - scripts/world_map.gd — рисование карты, посёлки, удаление/вставка файлов
 - scripts/residents.gd — жители посёлка (дела, болтовня, сон); scripts/pawn.gd — человечек
 - scripts/hunt.gd — удаление: киллеры, погоня, выстрел
-- scripts/continent.gd + continent_ui.gd — материк и его интерфейс; scripts/family_tree.gd — семейное древо
+- scripts/continent.gd + continent_ui.gd — материк и его интерфейс; scripts/family_tree.gd — семейное древо (родословная сверху вниз)
+- scripts/i18n.gd — языки RU/EN: словарь EN, I18n.t("русская строка") для строк с %s/%d
 - scripts/tiles.gd — текстуры и TileSet; tools/make_textures.py — генератор текстур
 - старое (первый этап, держат тесты test_map): main.gd, map_layout.gd, map_view.gd, scenes/main.tscn
 - tests/ — тесты GUT; export_presets.cfg — сборка build/FileColony.exe

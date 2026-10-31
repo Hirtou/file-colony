@@ -114,8 +114,8 @@ func _find_sights(world: Dictionary) -> void:
 		var it: Dictionary = homes[h]
 		var front: Vector2i = it.door + it.door_side
 		if area.has_point(front) and _walk[front.y * _n + front.x] == 1:
-			_sights.append({"cells": [front], "go": "идёт в гости к «%s»" % it.folder.name,
-				"at": "стучится к соседям «%s»" % it.folder.name, "home": h})
+			_sights.append({"cells": [front], "go": I18n.t("идёт в гости к «%s»") % it.folder.name,
+				"at": I18n.t("стучится к соседям «%s»") % it.folder.name, "home": h})
 
 ## Дописать в массивы жителя, чьи files/looks/home/file_index уже добавлены.
 func _spawn(c: Vector2i, st: int) -> void:
@@ -296,15 +296,15 @@ func where(r: int) -> String:
 	match state[r]:
 		State.HOME:
 			if night and still:
-				return "спит"
-			return _spots.get(cell[r], "хлопочет по дому") if still else "ходит по дому"
+				return I18n.t("спит")
+			return I18n.t(_spots.get(cell[r], "хлопочет по дому") if still else "ходит по дому")
 		State.WALK_HOME:
 			if carry[r] == 1:
-				return "переезжает в «%s» с вещами" % homes[home[r]].folder.name
-			return "спешит домой — темнеет" if night else "идёт домой"
+				return I18n.t("переезжает в «%s» с вещами") % homes[home[r]].folder.name
+			return I18n.t("спешит домой — темнеет" if night else "идёт домой")
 		State.WALK_OUT, State.OUT:
-			return doing[r]
-	return WHERE[state[r]]
+			return I18n.t(doing[r])
+	return I18n.t(WHERE[state[r]])
 
 ## Спит ли (ночью дома, стоит на месте) — рисуется «z».
 func sleeping(r: int) -> bool:
@@ -356,8 +356,8 @@ func _try_chat(r: int) -> void:
 			continue
 		chat[r] = files[q]
 		chat[q] = files[r]
-		doing[r] = "болтает с %s" % files[q].name
-		doing[q] = "болтает с %s" % files[r].name
+		doing[r] = I18n.t("болтает с %s") % files[q].name
+		doing[q] = I18n.t("болтает с %s") % files[r].name
 		facing[r] = _face(d)
 		facing[q] = _face(-d)
 		_wait[r] = _rng.randf_range(6.0, 11.0)
