@@ -30,6 +30,32 @@ const ROAM := 6         # отдельный дом: на сколько кле�
 var world: Dictionary
 var items: Array = []
 var by_folder := {}          # Folder -> item
+var land_rect := Rect2()     # где суша (мир. координаты) — дальше камера не уходит
+var type_filter := -1        # показать на карте файлы одного типа (-1 — выкл)
+var _pins: Array = []        # [дом, сколько там файлов нужного типа]
+
+## Выбрать тип файлов для поиска на карте (-1 — снять). Возвращает [файлов, домов].
+func set_type_filter(t: int) -> Vector2i:
+	type_filter = t
+	_update_pins()
+	var n := 0
+	for p in _pins:
+		n += p[1]
+	return Vector2i(n, _pins.size())
+
+func _update_pins() -> void:
+	_pins.clear()
+	if type_filter < 0:
+		return
+	for it in items:
+		if it.kind != "house":
+			continue
+		var k := 0
+		for f in it.folder.files:
+			if f.type == type_filter:
+				k += 1
+		if k > 0:
+			_pins.append([it, k])
 var expanded := {}           # раскрытые города: Folder -> true
 var focus = null             # самый глубокий раскрытый город (остальное темнее)
 var selected := {}           # {type: "folder"/"file", item, index}
@@ -117,6 +143,15 @@ func setup(root, seed_value: int, prebuilt := {}) -> void:
 		wall_layer.set_cell(w[0], t.ids[w[1]], Vector2i.ZERO, w[2])
 	_tile_layers = [ground, floors, wall_layer]
 	_build_overview()
+	# суша целиком (для ограничения камеры)
+	var lo := Vector2i(n, n)
+	var hi := Vector2i(-1, -1)
+	for i in n * n:
+		if world.ground[i] != WorldLayout.G.WATER:
+			var c := Vector2i(i % n, i / n)
+			lo = lo.min(c)
+			hi = hi.max(c)
+	land_rect = Rect2(world.origin + Vector2(lo) * WorldLayout.TILE, Vector2(hi - lo + Vector2i.ONE) * WorldLayout.TILE)
 	for d in world.decor:
 		var tex := String(d.tex)
 		var c: Vector2 = world.origin + d.c * WorldLayout.TILE
@@ -450,6 +485,7 @@ func remove_file(item: Dictionary, file) -> void:
 	if r >= 0:
 		t.remove(r)
 	_fill_from_hidden(item)
+	_update_pins()
 	file_deleted.emit(item)
 
 ## В доме освободилось место — ждавший за «+N» файл выходит жителем.
@@ -489,6 +525,7 @@ func move_file(src: Dictionary, file, dst: Dictionary) -> String:
 			t2.carry[r2] = 1
 	t2._reindex()
 	_fill_from_hidden(src)
+	_update_pins()
 	files_changed.emit(src)
 	files_changed.emit(dst)
 	return file.name
@@ -500,6 +537,7 @@ func paste(item: Dictionary, src):
 	item.folder.file_count = item.folder.files.size()
 	var t := town_of(item)
 	t.add_file(t.home_of[item.folder], f)
+	_update_pins()
 	return f
 
 ## Где сейчас жители дома (для камеры).
@@ -581,12 +619,36 @@ func _draw_labels() -> void:
 			_banner(it.plaza.get_center(), it.folder.name, 16 if it.depth == 1 else 13, z, _dim(it), 1.0 - 0.55 * near)
 		else:
 			_text(Vector2(it.pos.x, it.rect.end.y), it.folder.name, 12, z, 4.0, _dim(it))
+	_draw_pins(view, z)
 	if focus != null:
 		_focus_frame(by_folder[focus].rect, z)
 	if not selected.is_empty() and not (selected.type == "folder" and selected.item.folder == focus):
 		# дом выбранного жителя — бледной рамкой
 		var a := 1.0 if selected.type == "folder" else 0.5
 		_labels.draw_rect(frame(selected.item).grow(4 / z), Color(SELECT, a), false, 2 / z)
+
+## Метки над домами, где есть файлы выбранного типа: кружок цвета типа с числом, «дышит».
+func _draw_pins(view: Rect2, z: float) -> void:
+	if _pins.is_empty():
+		return
+	var col: Color = TYPE_COLORS[type_filter]
+	var t := Time.get_ticks_msec() / 1000.0
+	for p in _pins:
+		var it: Dictionary = p[0]
+		if not view.grow(40 / z).intersects(it.rect):
+			continue
+		var at := Vector2(it.rect.get_center().x, it.rect.position.y)
+		var bounce := sin(t * 3.0 + at.x * 0.01) * 3.0
+		_labels.draw_set_transform(at, 0, Vector2.ONE / z)
+		var c := Vector2(0, -22 + bounce)
+		_labels.draw_colored_polygon(PackedVector2Array([c + Vector2(-7, 8), c + Vector2(7, 8), Vector2(0, bounce)]), col.darkened(0.3))
+		_labels.draw_circle(c, 15.0, Color(0, 0, 0, 0.6))
+		_labels.draw_circle(c, 13.0, col)
+		_labels.draw_arc(c, 13.0 + 4.0 + 3.0 * (0.5 + 0.5 * sin(t * 4.0)), 0, TAU, 24, Color(col, 0.5), 2.0, true)
+		var s := str(p[1])
+		var w := _font.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
+		_labels.draw_string(_font, c + Vector2(-w / 2, 5), s, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, Color(0.05, 0.05, 0.05))
+	_labels.draw_set_transform_matrix(Transform2D.IDENTITY)
 
 ## Открытый город: бегущий пунктир по контуру и «дышащие» уголки (вместо затемнения вокруг).
 func _focus_frame(r: Rect2, z: float) -> void:
@@ -672,7 +734,9 @@ func _draw_town(t: Residents, z: float, view: Rect2, sel_t: Residents, marked: A
 		# издалека — цветные точки
 		for r in t.files.size():
 			if view.has_point(t.pos[r]):
-				_overlay.draw_circle(t.pos[r], u * 0.3, t.looks[r].main)
+				var hit: bool = type_filter >= 0 and t.files[r].type == type_filter
+				var off: bool = type_filter >= 0 and not hit
+				_overlay.draw_circle(t.pos[r], u * (0.45 if hit else 0.3), Pawn._d(t.looks[r].main, off))
 		return
 	var order := []
 	for r in t.files.size():
@@ -680,8 +744,14 @@ func _draw_town(t: Residents, z: float, view: Rect2, sel_t: Residents, marked: A
 			order.append(r)
 	order.sort_custom(func(a, b): return t.pos[a].y < t.pos[b].y)  # нижние перекрывают верхних
 	var tick := Time.get_ticks_msec() / 1600  # кто сейчас говорит в паре
+	var pulse := 0.5 + 0.5 * sin(Time.get_ticks_msec() / 250.0)
 	for r in order:
 		var dim := only and not marked.has(r)
+		if type_filter >= 0:
+			if t.files[r].type == type_filter:
+				_overlay.draw_arc(t.pos[r], u * (0.48 + 0.06 * pulse), 0, TAU, 24, TYPE_COLORS[type_filter], u * 0.06, true)
+			else:
+				dim = true  # остальные типы темнее
 		Pawn.draw(_overlay, t.pos[r], u, t.looks[r], t.facing[r], t.walk[r], dim, u * z >= SIMPLE_PX, t.carry[r] == 1)
 		if u * z < SIMPLE_PX:
 			continue

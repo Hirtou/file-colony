@@ -10,6 +10,7 @@ signal speed_pressed
 signal file_chosen(index: int)
 signal menu_chosen(id: int)
 signal tree_pressed
+signal type_chosen(t: int)
 
 const BG := Color(0.07, 0.08, 0.11, 0.78)
 const TEXT := Color(0.92, 0.93, 0.96)
@@ -36,6 +37,7 @@ var _clip_pawn: PawnView
 var _clip_name: Label
 var _clip_title: Label
 var tree: FamilyTree   # вкладка «Семейное древо»
+var _type_rows: Array = []
 
 ## Житель крупно (модель файла в буфере обмена).
 class PawnView extends Control:
@@ -139,18 +141,31 @@ func _ready() -> void:
 	leg.add_theme_constant_override("separation", 2)
 	br.add_child(leg)
 	var title := Label.new()
-	title.text = "Одежда = тип файла"
+	title.text = "Одежда = тип файла\nклик — найти на карте"
 	title.add_theme_font_size_override("font_size", 12)
 	title.modulate.a = 0.7
 	leg.add_child(title)
 	for t in FakeTree.TYPE_NAMES.size():
 		var line := HBoxContainer.new()
 		line.add_child(Dot.new(WorldMap.TYPE_COLORS[t]))
-		var l := Label.new()
-		l.text = FakeTree.TYPE_NAMES[t]
-		l.add_theme_font_size_override("font_size", 12)
-		line.add_child(l)
+		var b := Button.new()
+		b.text = FakeTree.TYPE_NAMES[t]
+		b.flat = true
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		b.add_theme_font_size_override("font_size", 12)
+		b.tooltip_text = "Показать на карте все файлы типа «%s»" % FakeTree.TYPE_NAMES[t]
+		var tight := StyleBoxEmpty.new()  # строки легенды низкие, как раньше
+		tight.content_margin_left = 2
+		tight.content_margin_top = 0
+		tight.content_margin_bottom = 0
+		for s in ["normal", "hover", "pressed", "focus"]:
+			b.add_theme_stylebox_override(s, tight)
+		b.add_theme_color_override("font_hover_color", Color(1.0, 0.9, 0.55))
+		b.pressed.connect(type_chosen.emit.bind(t))
+		line.add_child(b)
 		leg.add_child(line)
+		_type_rows.append(line)
 
 	# буфер обмена над «Назад»: скопированный житель
 	_clip = _panel(root, Vector2(0, 1), Vector2(12, -66))
@@ -426,6 +441,11 @@ func set_clipboard(file, cut := false) -> void:
 	_clip_pawn.look = Pawn.look(file)
 	_clip_pawn.queue_redraw()
 	_clip_name.text = "%s  ·  %s" % [file.name, FakeTree.format_size(file.size)]
+
+## Подсветить выбранный тип в легенде (-1 — ни один).
+func mark_type(t: int) -> void:
+	for i in _type_rows.size():
+		_type_rows[i].modulate = Color(1.3, 1.2, 0.7) if i == t else (Color(1, 1, 1, 0.55) if t >= 0 else Color.WHITE)
 
 func show_tip(text: String, at: Vector2) -> void:
 	_tip_label.text = text

@@ -30,6 +30,7 @@ func _ready() -> void:
 	_planet.position = _planet_pos(false)
 	_planet.setup("Файловая колония", 210.0, 0.0)
 	_build_ui()
+	Game.play_music("space")
 
 func _planet_pos(panel_open: bool) -> Vector2:
 	var vp := get_viewport_rect().size
@@ -152,6 +153,18 @@ func _make_settings(root: Control) -> PanelContainer:
 	cam.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	cam.value_changed.connect(func(x): Game.set_setting("cam_speed", x))
 	row.add_child(cam)
+	var rm := HBoxContainer.new()
+	v.add_child(rm)
+	_label(rm, "Музыка", 16).custom_minimum_size.x = 170
+	var mus := HSlider.new()
+	mus.min_value = 0
+	mus.max_value = 100
+	mus.step = 5
+	mus.value = Game.settings.music
+	mus.custom_minimum_size.x = 170
+	mus.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	mus.value_changed.connect(func(x): Game.set_setting("music", x))
+	rm.add_child(mus)
 	var row2 := HBoxContainer.new()
 	v.add_child(row2)
 	_label(row2, "Скорость времени", 16).custom_minimum_size.x = 170

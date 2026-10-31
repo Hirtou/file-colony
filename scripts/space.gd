@@ -50,6 +50,7 @@ static func layout(disks: Array) -> Array:
 
 func _ready() -> void:
 	label.visible = false
+	Game.play_music("space")
 	enter_btn.pressed.connect(_dive)
 	# затемнение для нырка на планету и обратно (поверх всего)
 	var fl := CanvasLayer.new()
@@ -222,6 +223,7 @@ func _leave_now() -> void:
 	continent.queue_free()
 	continent = null
 	_show_space(true)
+	Game.play_music("space")
 	cam.make_current()
 	cam.position = target.position + Vector2(0, 30)
 	cam.zoom = _planet_zoom * 5.0

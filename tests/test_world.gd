@@ -249,6 +249,13 @@ func test_move_to_other_house():
 	assert_true(was_carrying or t.state[r2] == Residents.State.HOME, "нёс коробку")
 	assert_true(t.check() and _indices_ok(t))
 
+func test_music_loops():
+	for track in ["space", "village"]:
+		var s: AudioStreamWAV = load("res://assets/music/%s.wav" % track)
+		assert_not_null(s, "трек %s есть" % track)
+		assert_eq(s.loop_mode, AudioStreamWAV.LOOP_FORWARD, "трек %s играет по кругу" % track)
+		assert_gt(s.get_length(), 20.0)
+
 func test_residents_have_things_to_do():
 	var t := _town(5)
 	var seen := {}

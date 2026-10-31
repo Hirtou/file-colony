@@ -15,7 +15,10 @@ const DEFAULTS := {
 	"shadows": true,
 	"cam_speed": 600.0,
 	"time_speed": 0,  # индекс в TIME_SPEEDS
+	"music": 60.0,    # громкость музыки, 0..100
 }
+const MUSIC_DIR := "res://assets/music/"
+const FADE := 1.5     # секунд на плавную смену трека
 
 var mode := "disks"            # disks / sandbox
 var disks: Array = MY_DISKS    # [{name, gb}]
@@ -25,9 +28,17 @@ var _worlds := {}              # кэш построенных материко�
 var clipboard = null           # скопированный файл (FileItem, выдуманный), общий для всех планет
 var clip_cut := false          # файл вырезан: «Вставить» переселит его, а не скопирует
 var _fps: Label
+var _players: Array[AudioStreamPlayer] = []  # два плеера — для плавного перехода между треками
+var _cur := 0
+var _track := ""
 
 func _ready() -> void:
 	_load()
+	for i in 2:
+		var p := AudioStreamPlayer.new()
+		p.volume_db = -80.0
+		add_child(p)
+		_players.append(p)
 	var layer := CanvasLayer.new()
 	layer.layer = 100
 	add_child(layer)
@@ -82,6 +93,32 @@ func cache_world(disk_name: String, data: Dictionary) -> void:
 func time_speed() -> int:
 	return TIME_SPEEDS[settings.time_speed]
 
+# --- музыка ---
+
+## Включить трек (space / village), плавно сменив текущий. Тот же трек — ничего не делать.
+func play_music(track: String) -> void:
+	if track == _track:
+		return
+	_track = track
+	var path := MUSIC_DIR + track + ".wav"
+	if not ResourceLoader.exists(path):
+		return
+	var stream: AudioStream = load(path)  # петля включена в настройках импорта (.wav.import)
+	var old := _players[_cur]
+	_cur = 1 - _cur
+	var p := _players[_cur]
+	p.stream = stream
+	p.volume_db = -80.0
+	p.play()
+	var tw := create_tween().set_parallel()
+	tw.tween_property(p, "volume_db", _music_db(), FADE)
+	tw.tween_property(old, "volume_db", -80.0, FADE)
+	tw.chain().tween_callback(old.stop)
+
+func _music_db() -> float:
+	var v: float = settings.music / 100.0
+	return linear_to_db(maxf(v * 0.8, 0.0001))
+
 # --- сцены ---
 
 ## Заменить сцену from на новую из файла; вернуть новую.
@@ -105,6 +142,8 @@ func apply() -> void:
 		DisplayServer.window_set_vsync_mode(DisplayServer.VSYNC_ENABLED if settings.vsync else DisplayServer.VSYNC_DISABLED)
 	if _fps:
 		_fps.visible = settings.show_fps
+	if not _players.is_empty() and _players[_cur].playing:
+		_players[_cur].volume_db = _music_db()  # громкость из настроек — сразу
 
 func _load() -> void:
 	var cfg := ConfigFile.new()

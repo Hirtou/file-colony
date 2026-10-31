@@ -40,6 +40,7 @@ func _ready() -> void:
 	ui.file_chosen.connect(func(i): if _files_of: _focus_file(map.by_folder[_files_of], i))
 	ui.menu_chosen.connect(_on_menu)
 	ui.tree_pressed.connect(_open_tree)
+	ui.type_chosen.connect(_on_type)
 	ui.tree.show_on_map.connect(_tree_to_map)
 	ui.speed_pressed.connect(func(): _speed_i = (_speed_i + 1) % SPEEDS.size())
 	# постройка мира занимает пару секунд — сначала показываем надпись
@@ -52,6 +53,7 @@ func _ready() -> void:
 	map.setup(root, seed_value, cached.get("world", {}))
 	map.file_deleted.connect(_on_file_deleted)
 	map.files_changed.connect(_refresh)
+	cam.bounds = map.land_rect  # камера не улетает с материка
 	ui.set_clipboard(Game.clipboard, Game.clip_cut)
 	if cached.is_empty():
 		Game.cache_world(disk_name, {"root": root, "world": map.world})
@@ -215,6 +217,20 @@ func _on_menu(id: int) -> void:
 			go_to(h.item.path)
 		M.FAMILY:
 			_open_tree(h.item.folder.files[h.index] if h.type == "file" else h.item.folder)
+
+## Клик по типу в легенде: метки над домами с такими файлами; повторный клик — снять.
+func _on_type(t: int) -> void:
+	if map.type_filter == t:
+		t = -1
+	var n := map.set_type_filter(t)
+	ui.mark_type(t)
+	if t < 0:
+		ui.toast("Подсветка типов выключена")
+	elif n.x == 0:
+		ui.toast("Файлов типа «%s» на этой планете нет" % FakeTree.TYPE_NAMES[t], Color(1.0, 0.8, 0.5))
+	else:
+		ui.toast("«%s»: %d файлов в %d домах — ищи метки на карте" % [FakeTree.TYPE_NAMES[t], n.x, n.y],
+			WorldMap.TYPE_COLORS[t].lightened(0.3))
 
 ## Семейное древо выбранного (файл, папка) или текущего уровня.
 func _open_tree(person = null) -> void:
@@ -397,6 +413,7 @@ func _tick_time(delta: float) -> void:
 		day += 1
 	map.time_scale = minf(speed, 10.0)  # жители на ×60 не носятся как угорелые
 	map.set_daylight(night_of(hour), dusk_of(hour))
+	Game.play_music("space" if night_of(hour) > 0.6 else "village")  # ночью — тихий эмбиент
 	ui.set_clock("День %d · %02d:%02d · %s" % [day, int(hour), int(fmod(hour, 1.0) * 60.0), part_of_day(hour)], speed)
 
 ## 0 — день, 1 — ночь; плавно на рассвете (5–7) и в сумерках (18–21).
@@ -481,7 +498,7 @@ func debug_view(view: String) -> void:
 	for it in map.items:
 		if view == "city" and it.kind == "city" and it.depth == 1 and (best == null or it.r > best.r):
 			best = it
-		elif view in ["house", "pawns", "closeup", "hunt", "chase", "move"] and it.kind == "house" and (best == null or it.folder.file_count > best.folder.file_count):
+		elif view in ["house", "pawns", "closeup", "hunt", "chase", "move", "filter"] and it.kind == "house" and (best == null or it.folder.file_count > best.folder.file_count):
 			best = it
 		elif view == "family" and it.kind == "house" and it.depth >= 3 and (best == null or it.folder.file_count > best.folder.file_count):
 			best = it  # дом во вложенном районе: видны дедушка, отец, братья, дети
@@ -538,6 +555,10 @@ func debug_view(view: String) -> void:
 			hu.update(1.0 / 30.0)
 		cam.position = hu.target.lerp(hu.killers[0].pos, 0.5)
 		cam.zoom = Vector2.ONE * 2.6
+	elif view == "filter":
+		_on_type(0)  # картинки
+		go_to([root], true)
+		return
 	elif view == "move":
 		# переселение: житель с коробкой идёт в соседний дом того же города
 		var t := map.town_of(best)
