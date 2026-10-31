@@ -22,7 +22,6 @@ const TYPE_COLORS := [
 	Color(0.55, 0.65, 0.20),  # сохранение
 ]
 const SEA := Color(0.16, 0.25, 0.3)
-const SHALLOW := Color(0.27, 0.38, 0.4)
 const SELECT := Color(1.0, 0.9, 0.3)
 const SHADOW := Color(0, 0, 0, 0.36)
 const FLOORS := ["floor_wood", "floor_stone", "floor_dirt"]
@@ -143,7 +142,7 @@ func setup(root, seed_value: int, prebuilt := {}, city = null, env := {}) -> voi
 	for it in items:
 		by_folder[it.folder] = it
 	texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-	_add_sea()
+	_add_terrain()
 	var walls := ["city_wall"]
 	for m in WALL_MATS:
 		for s in ["", "_corner", "_door"]:
@@ -169,7 +168,7 @@ func setup(root, seed_value: int, prebuilt := {}, city = null, env := {}) -> voi
 	var n: int = world.n
 	for i in n * n:
 		var code: int = world.ground[i]
-		if code != WorldLayout.G.WATER:
+		if not soft_ground(code):  # улицы, площади, дворы, мостки, поля — плитками поверх мягкой земли
 			ground.set_cell(Vector2i(i % n, i / n), t.ids[WorldLayout.G_TEX[code]], Vector2i.ZERO)
 	for fl in world.floors:
 		floors.set_cell(fl[0], t.ids[fl[1]], Vector2i.ZERO)
@@ -244,10 +243,10 @@ func _build_overview() -> void:
 	var cols := {}
 	for code in range(1, WorldLayout.G_TEX.size()):
 		cols[code] = _avg_color(WorldLayout.G_TEX[code])
-	var img := Image.create_empty(n, n, false, Image.FORMAT_RGBA8)  # вода прозрачная — под ней море
+	var img := Image.create_empty(n, n, false, Image.FORMAT_RGBA8)  # природная земля прозрачная — под ней шейдер земли
 	for i in n * n:
 		var code: int = world.ground[i]
-		if code != WorldLayout.G.WATER:
+		if not soft_ground(code):
 			img.set_pixel(i % n, i / n, cols[code])
 	var tree_col := Color(0.22, 0.34, 0.18)
 	for d in world.decor:
@@ -369,30 +368,75 @@ func _canvas(node_name: String, fn: Callable) -> Node2D:
 	c.draw.connect(fn)
 	return c
 
-## Море: мелководье светлее у берега (плавно, линейным фильтром).
-func _add_sea() -> void:
+## Природная земля и вода — одним шейдером (terrain.gdshader): слои плавно перетекают, без квадратов.
+## Слой клетки: трава 1-4, земля, песок, тропа, вода. Под улицами, дворами, площадями — тропа
+## (земля вокруг них натоптана), под мостками — вода, под полями — земля; сами они — плитки сверху.
+const TERRAIN_TEX := ["ground_grass_1", "ground_grass_2", "ground_grass_3", "ground_grass_4", "ground_dirt", "ground_sand", "ground_path"]
+const TERRAIN_WATER := 7
+static var _grounds: Texture2DArray
+
+## Слой шейдера земли для кода клетки.
+static func terrain_layer(code: int) -> int:
+	match code:
+		WorldLayout.G.WATER, WorldLayout.G.PIER:
+			return TERRAIN_WATER
+		WorldLayout.G.GRASS_1, WorldLayout.G.GRASS_2, WorldLayout.G.GRASS_3, WorldLayout.G.GRASS_4:
+			return code - WorldLayout.G.GRASS_1
+		WorldLayout.G.DIRT, WorldLayout.G.FIELD:
+			return 4
+		WorldLayout.G.SAND:
+			return 5
+	return 6  # тропа; под улицами, площадями, дворами
+
+## Клетку рисует шейдер земли (плиткой сверху не кладём).
+static func soft_ground(code: int) -> bool:
+	return code <= WorldLayout.G.PATH
+
+func _add_terrain() -> void:
 	var n: int = world.n
-	# сколько суши в окне 5x5 вокруг клетки — через префиксные суммы (быстро)
-	var m := n + 1
-	var sum := PackedInt32Array()
-	sum.resize(m * m)
-	for y in n:
-		var row := 0
-		for x in n:
-			row += 1 if world.ground[y * n + x] != WorldLayout.G.WATER else 0
-			sum[(y + 1) * m + x + 1] = sum[y * m + x + 1] + row
-	var img := Image.create_empty(n, n, false, Image.FORMAT_RGB8)
-	for y in n:
-		var y0 := maxi(y - 2, 0)
-		var y1 := mini(y + 3, n)
-		for x in n:
-			var x0 := maxi(x - 2, 0)
-			var x1 := mini(x + 3, n)
-			var land := sum[y1 * m + x1] - sum[y0 * m + x1] - sum[y1 * m + x0] + sum[y0 * m + x0]
-			img.set_pixel(x, y, SEA.lerp(SHALLOW, minf(1.0, land / 8.0)))
+	var splat := Image.create_empty(n, n, false, Image.FORMAT_R8)
+	var water: Array[int] = []
+	var dist := PackedInt32Array()
+	dist.resize(n * n)
+	dist.fill(-1)
+	for i in n * n:
+		var code: int = world.ground[i]
+		var l := terrain_layer(code)
+		splat.set_pixel(i % n, i / n, Color8(l, 0, 0))
+		if l != TERRAIN_WATER:
+			dist[i] = 0
+			water.append(i)
+	# глубина воды: шагов до суши (обход в ширину), не дальше 6
+	var head := 0
+	while head < water.size():
+		var i: int = water[head]
+		head += 1
+		if dist[i] >= 6:
+			continue
+		var x := i % n
+		for nb in [i - 1 if x > 0 else -1, i + 1 if x < n - 1 else -1, i - n, i + n]:
+			if nb >= 0 and nb < n * n and dist[nb] < 0:
+				dist[nb] = dist[i] + 1
+				water.append(nb)
+	var depth := Image.create_empty(n, n, false, Image.FORMAT_R8)
+	for i in n * n:
+		depth.set_pixel(i % n, i / n, Color(minf(1.0, (dist[i] if dist[i] >= 0 else 6) / 6.0), 0, 0))
+	if _grounds == null:
+		var imgs: Array[Image] = []
+		for t in TERRAIN_TEX:
+			imgs.append(Tiles.tex(t).get_image())
+		_grounds = Texture2DArray.new()
+		_grounds.create_from_images(imgs)
+	var mat := ShaderMaterial.new()
+	mat.shader = preload("res://shaders/terrain.gdshader")
+	mat.set_shader_parameter("splat", ImageTexture.create_from_image(splat))
+	mat.set_shader_parameter("depth", ImageTexture.create_from_image(depth))
+	mat.set_shader_parameter("grounds", _grounds)
+	mat.set_shader_parameter("n", float(n))
 	var s := Sprite2D.new()
-	s.texture = ImageTexture.create_from_image(img)
-	s.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+	s.name = "Terrain"
+	s.texture = ImageTexture.create_from_image(splat)
+	s.material = mat
 	s.scale = Vector2.ONE * WorldLayout.TILE
 	add_child(s)  # центр карты в (0, 0)
 
