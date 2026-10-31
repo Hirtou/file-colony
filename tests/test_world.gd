@@ -117,6 +117,18 @@ func test_city_water_and_work():
 			fishing = fishing or String(go).begins_with("идёт на рыбалку")
 		assert_true(fishing, "seed %d: есть где рыбачить" % s)
 
+## Улицы районов не обрываются в траве: каждый выход главной улицы района ведёт на дорогу.
+func test_district_roads_connected():
+	for s in SEEDS:
+		var w := _w(s)
+		var n: int = w.n
+		for it in w.items:
+			if it.kind != "city" or it.depth < 2:
+				continue
+			for d in WorldLayout.DIRS4:
+				var gate := WorldLayout._gate(it.cell, it.size, it.entr, d)
+				assert_false(WorldLayout.dead_end(w.ground, n, gate, d), "seed %d: улица района %s обрывается (%s)" % [s, it.folder.name, d])
+
 ## Жители ходят на работу и рыбачить — и не заходят куда нельзя.
 func test_residents_go_to_work():
 	var w := _w(1)

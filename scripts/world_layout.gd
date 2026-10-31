@@ -396,6 +396,7 @@ static func build_city(root, city, seed_value: int, env := {}) -> Dictionary:
 	_flatten(nd, cell, 1, [root], items, ctx, Vector2i.DOWN)
 	if nd.kind == "city":
 		_exits(nd, cell, ctx)
+	_connect_districts(items, ctx)
 	if ter.through:
 		_river_through(items, town, ctx, rng, env.get("coast", Vector2.ZERO))
 	_fields(town, ctx, rng)
@@ -674,6 +675,102 @@ static func _crosses(a: Vector2, b: Vector2, r: Rect2) -> bool:
 			return true
 	return false
 
+## Крайняя клетка главной улицы деревни (первая из двух полос) на стороне d.
+static func _gate(cell: Vector2i, s: Vector2i, entr: Dictionary, d: Vector2i) -> Vector2i:
+	var e: int = entr[d]
+	if d == Vector2i.DOWN:
+		return cell + Vector2i(e, s.y - 1)
+	if d == Vector2i.LEFT:
+		return cell + Vector2i(0, e)
+	if d == Vector2i.RIGHT:
+		return cell + Vector2i(s.x - 1, e)
+	return cell + Vector2i(e, 0)
+
+## Конец главной улицы (две полосы: gate и рядом) на стороне d — тупик: ни впереди, ни по бокам дороги нет.
+static func dead_end(ground: PackedByteArray, n: int, gate: Vector2i, d: Vector2i) -> bool:
+	var side := Vector2i(absi(d.y), absi(d.x))
+	if ground[gate.y * n + gate.x] != G.STREET:
+		return false
+	for c in [gate + d, gate + side + d, gate - side, gate + side * 2]:
+		if c.x >= 0 and c.y >= 0 and c.x < n and c.y < n and walkable(ground[c.y * n + c.x]):
+			return false
+	return true
+
+## У района главные улицы выходят на все 4 стороны; там, где выход упёрся в траву, — улица до ближайшей
+## дороги за районом (в обход домов и мастерских). Не дошла (далеко) — тупиковый кусок убираем.
+static func _connect_districts(items: Array, ctx: Dictionary) -> void:
+	var n: int = ctx.n
+	var hard := PackedByteArray()  # дома, хижины, всё твёрдое — улица не проходит
+	hard.resize(n * n)
+	for it in items:
+		if it.kind == "city":
+			continue
+		for y in range(it.cell.y, it.cell.y + it.size.y):
+			for x in range(it.cell.x, it.cell.x + it.size.x):
+				hard[y * n + x] = 1
+	for c in ctx.block:
+		hard[c.y * n + c.x] = 1
+	var walk := func(c: Vector2i) -> bool:
+		return c.x >= 0 and c.y >= 0 and c.x < n and c.y < n and walkable(ctx.ground[c.y * n + c.x])
+	for it in items:
+		if it.kind != "city" or it.depth < 2:
+			continue
+		var own := Rect2i(it.cell, it.size)
+		for d in DIRS4:
+			var side := Vector2i(absi(d.y), absi(d.x))
+			var gate := _gate(it.cell, it.size, it.entr, d)
+			if not dead_end(ctx.ground, n, gate, d):
+				continue  # выход и так на дорогу (или улица тут поворачивает)
+			# обход в ширину от выхода до ближайшей дороги вне района
+			var start := gate + d
+			if start.x < 0 or start.y < 0 or start.x >= n or start.y >= n or hard[start.y * n + start.x] == 1:
+				_trim(gate, -d, side, ctx, hard)
+				continue
+			var prev := {start: start}
+			var q: Array[Vector2i] = [start]
+			var head := 0
+			var found := Vector2i(-1, -1)
+			while head < q.size() and head < 6000:
+				var c := q[head]
+				head += 1
+				if walk.call(c) and not own.has_point(c):
+					found = c
+					break
+				for k in DIRS4:
+					var nb: Vector2i = c + k
+					if prev.has(nb) or nb.x < 0 or nb.y < 0 or nb.x >= n or nb.y >= n or hard[nb.y * n + nb.x] == 1:
+						continue
+					if ctx.ground[nb.y * n + nb.x] == G.WATER or (nb - start).length_squared() > 45 * 45:
+						continue
+					prev[nb] = c
+					q.append(nb)
+			if found.x < 0:
+				_trim(gate, -d, side, ctx, hard)
+				continue
+			var p: Vector2i = prev[found]
+			while true:
+				if not walkable(ctx.ground[p.y * n + p.x]):
+					_set_g(ctx, p, G.STREET)
+				if p == start:
+					break
+				p = prev[p]
+
+## Убрать тупик главной улицы района: от выхода внутрь, пока по бокам только трава (ни развилок, ни домов).
+static func _trim(gate: Vector2i, inward: Vector2i, side: Vector2i, ctx: Dictionary, hard: PackedByteArray) -> void:
+	var n: int = ctx.n
+	var c := gate
+	for k in 40:
+		var cells: Array[Vector2i] = [c, c + side]
+		for w in cells:
+			if w.x < 0 or w.y < 0 or w.x >= n or w.y >= n or ctx.ground[w.y * n + w.x] != G.STREET:
+				return
+		for w in [c - side, c + side * 2]:
+			if not _wild(ctx, w) or hard[w.y * n + w.x] == 1:
+				return  # развилка или дом с дверью на эту улицу — дальше улица нужна
+		_set_g(ctx, c, G.GRASS_2)
+		_set_g(ctx, c + side, G.GRASS_2)
+		c += inward
+
 ## Главные улицы из ворот — дальше дорогами до края карты; узкая вода — мост, океан — дорога кончается.
 static func _exits(nd: Dictionary, cell: Vector2i, ctx: Dictionary) -> void:
 	var n: int = ctx.n
@@ -681,15 +778,7 @@ static func _exits(nd: Dictionary, cell: Vector2i, ctx: Dictionary) -> void:
 	var inside := func(c: Vector2i) -> bool: return c.x >= 0 and c.y >= 0 and c.x < n and c.y < n
 	for d in DIRS4:
 		var side := Vector2i(absi(d.y), absi(d.x))
-		var e: int = nd.entr[d]
-		var gate := cell + Vector2i(e, 0)
-		if d == Vector2i.DOWN:
-			gate = cell + Vector2i(e, s.y - 1)
-		elif d == Vector2i.LEFT:
-			gate = cell + Vector2i(0, e)
-		elif d == Vector2i.RIGHT:
-			gate = cell + Vector2i(s.x - 1, e)
-		var c: Vector2i = gate + d
+		var c: Vector2i = _gate(cell, s, nd.entr, d) + d
 		while inside.call(c) and inside.call(c + side):
 			if ctx.ground[c.y * n + c.x] == G.WATER or ctx.ground[(c + side).y * n + (c + side).x] == G.WATER:
 				var run := 0
@@ -1011,6 +1100,7 @@ static func _flatten(nd: Dictionary, cell: Vector2i, depth: int, path: Array, it
 		var pl: Rect2i = nd.plaza
 		it.plaza = Rect2(ctx.origin + Vector2(cell + pl.position) * TILE, Vector2(pl.size) * TILE)
 		it.door = cell + Vector2i(nd.entr[Vector2i.DOWN], nd.size.y - 1)
+		it.entr = nd.entr  # выходы главных улиц на 4 стороны (для соединения районов)
 		it.door_side = Vector2i.DOWN
 		_paint_village(nd, cell, ctx)
 	else:
