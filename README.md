@@ -10,7 +10,7 @@
 
 File Colony is a top-down simulation game built with Godot 4 that presents a file system as a world. Drives are planets, top-level folders are cities, subfolders are districts and houses, and files are residents with their own daily routines.
 
-- **Status:** test release (0.2). Features and data formats may change.
+- **Status:** test release (0.3). Features and data formats may change.
 - **Languages:** English and Russian. The language can be changed in Settings.
 - **Platform:** Windows, 64-bit.
 - **License:** [MIT](LICENSE).
@@ -26,7 +26,11 @@ File Colony is a top-down simulation game built with Godot 4 that presents a fil
 - **Residents.** Every file is a resident whose clothing colour shows its file type. Residents work at the market, shop, bakery, smithy, carpentry workshop, fields and fishing piers, visit each other, and sleep at night.
 - **File operations.** Residents can be copied, pasted into another house or deleted. Deleting a resident starts a short chase scene.
 - **Family tree.** The folder hierarchy is shown as a top-down pedigree, with collapsible branches, search and a details panel.
-- **Tools.** Search by name, type, size and city; a day–night cycle; time acceleration.
+- **Weather.** Rain falls on roughly every third day. During rain the sky darkens, splashes appear on the ground and water, and residents stay indoors.
+- **City statistics.** A disk-analyzer view of the city: space used by each file type, the largest files and the most crowded houses. Rows open the item on the map.
+- **Minimap.** An overview of the whole city in the corner; clicking it moves the camera.
+- **Sound.** Rain ambience and sound effects for copying, pasting and deleting, generated procedurally. Music and sound volumes are set separately.
+- **Tools.** Search by name, type, size and city; a day–night cycle; time acceleration and pause; a controls reference (F1); screenshots (F12).
 - **Sandbox.** Generates a random world from a seed, which can be a number or a word.
 
 | Space | City selection | City map |
@@ -36,6 +40,10 @@ File Colony is a top-down simulation game built with Godot 4 that presents a fil
 | Workplaces | Wildlife | Family tree |
 |---|---|---|
 | ![Workplaces](docs/images/v2_work.png) | ![Wildlife](docs/images/v2_ducks.png) | ![Family tree](docs/images/v2_family.png) |
+
+| Main menu | City statistics | Rain |
+|---|---|---|
+| ![Main menu](docs/images/v3_menu.png) | ![City statistics](docs/images/v3_stats.png) | ![Rain](docs/images/v3_rain.png) |
 
 ### Installation
 
@@ -57,6 +65,8 @@ Alternatively, open the project folder in the Godot editor and press F5.
 | General | WASD to move the camera, mouse wheel to zoom, Esc to go back |
 | Map | Left click to select or open, right click for the context menu (copy, paste, delete, family tree) |
 | Map | Ctrl+F to search, Ctrl+C / Ctrl+V / Delete for the selected item, T to open the family tree |
+| Map | I for city statistics, L to collapse the legend, P or Space to pause time, click the minimap to move the camera |
+| Anywhere | F1 for the controls reference (in a city), F12 to save a screenshot |
 | Family tree | ←/→ for siblings, ↑ for the parent, ↓ for children, Backspace to go back, Enter to show on the map |
 
 ### Development
@@ -77,7 +87,7 @@ The visual style was inspired by [RimWorld](https://rimworldgame.com/). This is 
 
 «Файловая колония» — симуляция с видом сверху на Godot 4, в которой файловая система показана как мир. Диски — планеты, папки верхнего уровня — города, вложенные папки — районы и дома, файлы — жители со своим распорядком дня.
 
-- **Статус:** тестовая версия (0.2). Возможности и форматы данных могут меняться.
+- **Статус:** тестовая версия (0.3). Возможности и форматы данных могут меняться.
 - **Языки:** русский и английский. Язык меняется в настройках.
 - **Платформа:** Windows, 64 бита.
 - **Лицензия:** [MIT](LICENSE).
@@ -93,7 +103,11 @@ The visual style was inspired by [RimWorld](https://rimworldgame.com/). This is 
 - **Жители.** Каждый файл — житель, цвет одежды показывает тип файла. Жители работают на рынке, в магазине, пекарне, кузнице, столярной мастерской, на полях и мостках для рыбалки, ходят в гости и ночью спят.
 - **Операции с файлами.** Жителя можно скопировать, вставить в другой дом или удалить. Удаление жителя запускает короткую сцену погони.
 - **Семейное древо.** Иерархия папок показана как родословная сверху вниз: ветки сворачиваются, есть поиск и панель с подробностями.
-- **Инструменты.** Поиск по имени, типу, размеру и городу; смена дня и ночи; ускорение времени.
+- **Погода.** Примерно каждый третий день идёт дождь: небо темнеет, по земле и воде расходятся брызги, жители сидят по домам.
+- **Статистика города.** Обзор в духе анализатора диска: место по типам файлов, самые большие файлы и самые людные дома. Строки открывают объект на карте.
+- **Мини-карта.** Весь город в углу экрана; клик по ней переносит камеру.
+- **Звук.** Шум дождя и звуки копирования, вставки и удаления, сгенерированные процедурно. Громкость музыки и звуков настраивается отдельно.
+- **Инструменты.** Поиск по имени, типу, размеру и городу; смена дня и ночи; ускорение и пауза времени; справка по управлению (F1); снимки экрана (F12).
 - **Песочница.** Генерирует случайный мир по зерну — числу или слову.
 
 ### Установка
@@ -116,6 +130,8 @@ godot --path .
 | Везде | WASD — движение камеры, колесо мыши — приближение, Esc — назад |
 | Карта | ЛКМ — выбрать или открыть, ПКМ — контекстное меню (копировать, вставить, удалить, древо) |
 | Карта | Ctrl+F — поиск, Ctrl+C / Ctrl+V / Delete — для выбранного, T — семейное древо |
+| Карта | I — статистика города, L — свернуть легенду, P или пробел — пауза, клик по мини-карте — переместить камеру |
+| Везде | F1 — справка по управлению (в городе), F12 — снимок экрана |
 | Древо | ←/→ — братья и сёстры, ↑ — родитель, ↓ — дети, Backspace — назад, Enter — показать на карте |
 
 ### Разработка

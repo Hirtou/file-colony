@@ -26,7 +26,7 @@
 
 # Файлы
 - scripts/game.gd — автозагрузка Game: режим (мои диски / песочница), настройки, кэш миров, буфер
-- scripts/menu.gd — главное меню (2D-планета: scripts/planet.gd + shaders/planet.gdshader)
+- scripts/menu.gd — главное меню на 3D-фоне (Globe + небо космоса); scripts/planet.gd — старая 2D-планета (форматы размеров)
 - scripts/space.gd — космос в 3D: камера-орбита, солнце, перелёт между дисками; scripts/globe.gd + shaders/globe.gdshader — 3D-планета
 - scripts/sun.gd, scripts/stars.gd — далёкое солнце и звёзды (параллакс)
 - scripts/fake_tree.gd — FakeTree.generate(seed) -> дерево Folder (выдуманное)
@@ -36,7 +36,9 @@
 - scripts/residents.gd — жители посёлка (дела, болтовня, сон); scripts/pawn.gd — человечек
 - scripts/wildlife.gd — утки, круги от рыб, дым кузницы; shaders/terrain.gdshader — мягкая земля и вода; shaders/cloud_shadows.gdshader — тени облаков
 - scripts/hunt.gd — удаление: киллеры, погоня, выстрел
-- scripts/continent.gd + continent_ui.gd — материк и его интерфейс; scripts/family_tree.gd — семейное древо (родословная сверху вниз)
+- scripts/continent.gd + continent_ui.gd — материк и его интерфейс (тема make_theme, мини-карта, легенда); scripts/family_tree.gd — семейное древо (родословная сверху вниз)
+- scripts/stats_view.gd — окно «Статистика города» (I); scripts/help_view.gd — справка по клавишам (F1)
+- scripts/weather.gd — дождь над картой (сила — continent.rain_of); scripts/sfx.gd — звуки из чисел (дождь, выстрел, копирование, вставка)
 - scripts/i18n.gd — языки RU/EN: словарь EN, I18n.t("русская строка") для строк с %s/%d
 - scripts/tiles.gd — текстуры и TileSet; tools/make_textures.py — генератор текстур
 - старое (первый этап, держат тесты test_map): main.gd, map_layout.gd, map_view.gd, scenes/main.tscn

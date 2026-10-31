@@ -17,6 +17,9 @@ func _initialize() -> void:
 	var scene: Node = load(ProjectSettings.get_setting("application/run/main_scene")).instantiate()
 	root.add_child(scene)
 	await process_frame  # _ready сцены уже прошёл
+	var game := root.get_node_or_null("Game")
+	if game and game._fps:
+		game._fps.visible = false  # счётчик FPS на снимках не нужен (настройки не меняем)
 	if not is_nan(rot) and "planets" in scene:
 		for p in scene.planets:
 			p.rot = rot
