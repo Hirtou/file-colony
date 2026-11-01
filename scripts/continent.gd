@@ -708,6 +708,22 @@ func debug_view(view: String) -> void:
 					cam.zoom = Vector2.ONE * 0.9
 					return
 		return
+	if view == "bridge":
+		# мост через реку крупно: клетка мостков с водой с обеих сторон
+		var w: Dictionary = map.world
+		var n: int = w.n
+		for y in range(1, n - 1):
+			for x in range(1, n - 1):
+				if w.ground[y * n + x] != WorldLayout.G.PIER:
+					continue
+				for ax in [Vector2i(1, 0), Vector2i(0, 1)]:
+					var a: Vector2i = Vector2i(x, y) + ax
+					var b: Vector2i = Vector2i(x, y) - ax
+					if w.ground[a.y * n + a.x] == WorldLayout.G.WATER and w.ground[b.y * n + b.x] == WorldLayout.G.WATER:
+						cam.position = w.origin + (Vector2(x, y) + Vector2(0.5, 0.5)) * WorldLayout.TILE
+						cam.zoom = Vector2.ONE * 1.6
+						return
+		return
 	if view == "ducks":
 		# утки на воде, круги от рыб; немного подождать, чтобы поплыли
 		var wl = map._wild
