@@ -74,7 +74,9 @@ static func make_node(f, seed_value: int, top := true) -> Dictionary:
 		return {"folder": f, "kind": k, "mat": material(f, seed_value), "size": house_interior(f) + Vector2i(2, 2)}
 	var kids := []
 	for c in f.children:
-		kids.append(make_node(c, seed_value, false))
+		var kn := make_node(c, seed_value, false)
+		if not kn.is_empty():  # район не сложился — без него, лишь бы город построился
+			kids.append(kn)
 	# мастерские: в городе все, в районе одна
 	var types := ["market", "smithy", "carpenter", "shop", "bakery"]
 	if not top:
@@ -92,8 +94,13 @@ static func make_node(f, seed_value: int, top := true) -> Dictionary:
 		if not v.is_empty():
 			return v
 		arm += 4  # не влезли — улицы длиннее
-	push_error("WorldLayout: деревня %s не сложилась" % f.name)
-	return {}
+	# совсем не влезает — ставим, что влезло (лучше город без пары домов, чем падение игры)
+	var most := _village(f, kids, arm, base, true)
+	if most.is_empty():
+		push_error("WorldLayout: деревня %s не сложилась" % f.name)
+	else:
+		push_warning("WorldLayout: в деревне %s поместились не все дома" % f.name)
+	return most
 
 # --- сетка деревни (клетки могут быть отрицательными) ---
 
@@ -130,7 +137,7 @@ static func _road(g: Dictionary, c: Vector2i, v: int, roads: Array[Vector2i]) ->
 
 ## Деревня: площадь, 4 главные улицы с изломами и переулками, дома дверью к дороге.
 ## Пустой результат — не всё влезло (нужны улицы длиннее).
-static func _village(f, kids: Array, arm: int, seed_value: int) -> Dictionary:
+static func _village(f, kids: Array, arm: int, seed_value: int, lenient := false) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_value
 	var ps := 5 + mini(5, kids.size() / 2)  # площадь 5..10 клеток
@@ -233,7 +240,7 @@ static func _village(f, kids: Array, arm: int, seed_value: int) -> Dictionary:
 			kids_out.append({"node": nd, "off": r.position, "door_side": -s})
 			ok = true
 			break
-		if not ok:
+		if not ok and not lenient:
 			return {}
 
 	# граница деревни и выходы главных улиц на все 4 стороны
@@ -736,11 +743,54 @@ static func _even_bridges(made: Dictionary, orig: PackedByteArray, hard: PackedB
 			continue
 		if mini(box.size.x, box.size.y) > 4 or maxi(box.size.x, box.size.y) > 8:
 			continue  # длинная полоса вдоль реки — не трогаем, чтобы не мостить сушу
+		# мост — продолжение мостовой: если река режет улицу, тропа сбоку под доски не идёт (иначе мост
+		# сдвинут относительно улицы), её клетки в реке — вода
+		var street := false
+		for c in cells:
+			if orig[c.y * n + c.x] == G.STREET:
+				street = true
 		for y in range(box.position.y, box.end.y):
 			for x in range(box.position.x, box.end.x):
 				var j := y * n + x
-				if hard[j] == 0 and (orig[j] == G.STREET or orig[j] == G.PATH):
+				if hard[j] == 1:
+					continue
+				if orig[j] == G.STREET or (orig[j] == G.PATH and not street):
 					ctx.ground[j] = G.PIER
+				elif orig[j] == G.PATH and ctx.ground[j] == G.PIER:
+					ctx.ground[j] = G.WATER
+	_widen_bridges(orig, hard, ctx)
+
+## Полоса улицы, что осталась посреди реки рядом с мостом (вода с одной стороны, доски с другой), —
+## тоже доски: иначе её заливает вода, мост выглядит сдвинутым, а жители ходят по воде.
+static func _widen_bridges(orig: PackedByteArray, hard: PackedByteArray, ctx: Dictionary) -> void:
+	var n: int = ctx.n
+	var wet := func(c: Vector2i) -> int:  # 0 — суша, 1 — вода, 2 — мостки
+		if c.x < 0 or c.y < 0 or c.x >= n or c.y >= n:
+			return 0
+		var g: int = ctx.ground[c.y * n + c.x]
+		return 2 if g == G.PIER else (1 if g == G.WATER else 0)
+	var changed := true
+	while changed:
+		changed = false
+		for y in n:
+			for x in n:
+				var j := y * n + x
+				var g: int = ctx.ground[j]
+				if hard[j] == 1 or (g != G.STREET and g != G.PATH):
+					continue
+				for ax in [Vector2i(1, 0), Vector2i(0, 1)]:
+					var pa: Vector2i = Vector2i(x, y) + ax
+					var pb: Vector2i = Vector2i(x, y) - ax
+					var a: int = wet.call(pa)
+					var b: int = wet.call(pb)
+					if a == 0 or b == 0 or maxi(a, b) < 2:
+						continue
+					# доски рядом — из той же дороги (улица к улице, тропа к тропе)
+					var p: Vector2i = pa if a == 2 else pb
+					if orig[p.y * n + p.x] == g:
+						ctx.ground[j] = G.PIER
+						changed = true
+						break
 
 ## По обе стороны рамки box вдоль оси ax (слева и справа или сверху и снизу) вода (water: больше половины
 ## клеток стороны — под мостом течёт река) или суша (не water: хоть одна клетка — мосту есть куда выйти)?

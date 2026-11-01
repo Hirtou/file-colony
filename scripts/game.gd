@@ -1,6 +1,7 @@
 extends Node
 ## Общее состояние игры (autoload Game): режим «Мои диски» / «Песочница», настройки, кэш построенных миров.
-## Все диски и файлы выдуманные; читается только свой файл настроек user://settings.cfg.
+## «Мои диски» — настоящие диски (DiskScan: только имена и размеры), песочница — выдуманные.
+## Удаление, копирование и переселение меняют только мир игры, настоящие файлы не трогаются.
 
 const SETTINGS_FILE := "user://settings.cfg"
 const MY_DISKS := [{"name": "C:", "gb": 256}, {"name": "D:", "gb": 1024}]
@@ -23,7 +24,7 @@ const DEFAULTS := {
 const MUSIC_DIR := "res://assets/music/"
 const FADE := 1.5     # секунд на плавную смену трека
 
-var mode := "disks"            # disks / sandbox
+var mode := "fake"             # disks (настоящие диски) / fake (выдуманные C: и D:) / sandbox
 var disks: Array = MY_DISKS    # [{name, gb}]
 var salt := 0                  # 0 — «Мои диски», иначе зерно песочницы
 var settings := DEFAULTS.duplicate()
@@ -100,10 +101,14 @@ func _shot() -> void:
 
 # --- режимы ---
 
-func use_my_disks() -> void:
-	mode = "disks"
+## «Мои диски»: настоящие диски компьютера (real = false — выдуманные C: и D:, для скриншотов).
+func use_my_disks(real := true) -> void:
+	mode = "disks" if real else "fake"
 	salt = 0
-	disks = MY_DISKS
+	disks = DiskScan.drives() if real else MY_DISKS
+	if disks.is_empty():
+		disks = MY_DISKS
+		mode = "fake"
 
 func use_sandbox(seed_value: int, count: int) -> void:
 	mode = "sandbox"
@@ -130,21 +135,28 @@ func planet_seed(disk_name: String) -> int:
 
 ## Построенная карта (ключ — «диск/город», или {}): второй вход в город — мгновенно и такой же, как был.
 func cached_world(disk_name: String) -> Dictionary:
-	return _worlds.get("%s|%d" % [disk_name, salt], {})
+	return _worlds.get(_key(disk_name), {})
 
 func cache_world(disk_name: String, data: Dictionary) -> void:
-	_worlds["%s|%d" % [disk_name, salt]] = data
+	_worlds[_key(disk_name)] = data
 
-## Дерево папок диска (выдуманное) — одно на всю игру: удаления и переселения в нём сохраняются.
+## Ключ кэша: режим, диск, зерно (настоящий C: и выдуманный C: — разные миры).
+func _key(disk_name: String) -> String:
+	return "%s|%s|%d" % [mode, disk_name, salt]
+
+## Дерево папок диска — одно на всю игру: удаления и переселения в нём сохраняются (только в игре).
 func disk_root(disk_name: String):
-	var k := "%s|%d" % [disk_name, salt]
+	var k := _key(disk_name)
 	if not _roots.has(k):
-		_roots[k] = FakeTree.generate(tree_seed(disk_name), disk_name)
+		if mode == "disks":
+			_roots[k] = DiskScan.scan(disk_name)  # только имена и размеры, файлы не открываются
+		else:
+			_roots[k] = FakeTree.generate(tree_seed(disk_name), disk_name)
 	return _roots[k]
 
 ## Где на планете диска стоят города и что вокруг них (CitySites).
 func city_sites(disk_name: String) -> Array:
-	var k := "%s|%d" % [disk_name, salt]
+	var k := _key(disk_name)
 	if not _sites.has(k):
 		var img := PlanetTexture.get_texture(planet_seed(disk_name)).get_image()
 		_sites[k] = CitySites.make(disk_root(disk_name), planet_seed(disk_name), img)

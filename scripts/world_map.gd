@@ -124,7 +124,7 @@ var _sel_t: Residents = null  # посёлок выбранного дома/ж�
 var _hunts: Array = []        # идущие удаления (Hunt)
 var _hunt_node: Node2D
 const WILDLIFE := preload("res://scripts/wildlife.gd")  # напрямую: не зависит от кэша классов редактора
-var _wild: Node2D             # утки, круги от рыб, дым кузницы (Wildlife)
+var _wild: Node2D             # круги от рыб, дым кузницы (Wildlife)
 const WEATHER := preload("res://scripts/weather.gd")
 var weather: Node2D           # дождь (weather.gd); силу задаёт continent
 var _clouds: Sprite2D         # тени облаков (днём)
@@ -195,7 +195,7 @@ func setup(root, seed_value: int, prebuilt := {}, city = null, env := {}) -> voi
 	var n: int = world.n
 	for i in n * n:
 		var code: int = world.ground[i]
-		if not soft_ground(code):  # улицы, площади, дворы, мостки, поля — плитками поверх мягкой земли
+		if not soft_ground(code):  # мостки — плитками над водой; остальное рисует шейдер земли
 			@warning_ignore("integer_division")  # номер клетки -> строка: деление нацело и нужно
 			ground.set_cell(Vector2i(i % n, i / n), t.ids[WorldLayout.G_TEX[code]], Vector2i.ZERO)
 	for fl in world.floors:
@@ -433,10 +433,13 @@ func _canvas(node_name: String, fn: Callable) -> Node2D:
 	return c
 
 ## Природная земля и вода — одним шейдером (terrain.gdshader): слои плавно перетекают, без квадратов.
-## Слой клетки: трава 1-4, земля, песок, тропа. Под улицами, дворами, площадями — тропа (земля вокруг
-## натоптана), под полями — земля, под водой и мостками — песок; сами они — плитки сверху.
+## Слой клетки: трава 1-4, земля, песок, тропа (мягкие — перетекают друг в друга) и твёрдые: мостовая,
+## площадь, двор, поле — у них ровный край с неровной кромкой, а под ними и вокруг — тропа (поле — земля).
+## Под водой и мостками — песок; мостки — плитки сверху.
 ## Вода — отдельно: размытая маска, берег — её линия уровня (гладкий, без зубцов).
-const TERRAIN_TEX := ["ground_grass_1", "ground_grass_2", "ground_grass_3", "ground_grass_4", "ground_dirt", "ground_sand", "ground_path"]
+const TERRAIN_TEX := ["ground_grass_1", "ground_grass_2", "ground_grass_3", "ground_grass_4", "ground_dirt", "ground_sand", "ground_path",
+	"ground_street", "ground_plaza", "ground_yard", "ground_field"]
+const HARD_FIRST := 7  # с этого слоя — твёрдые
 static var _grounds: Texture2DArray
 
 ## Слой шейдера земли для кода клетки.
@@ -444,22 +447,31 @@ static func terrain_layer(code: int) -> int:
 	match code:
 		WorldLayout.G.GRASS_1, WorldLayout.G.GRASS_2, WorldLayout.G.GRASS_3, WorldLayout.G.GRASS_4:
 			return code - WorldLayout.G.GRASS_1
-		WorldLayout.G.DIRT, WorldLayout.G.FIELD:
+		WorldLayout.G.DIRT:
 			return 4
 		WorldLayout.G.SAND, WorldLayout.G.WATER, WorldLayout.G.PIER:
 			return 5
-	return 6  # тропа; под улицами, площадями, дворами
+		WorldLayout.G.STREET:
+			return 7
+		WorldLayout.G.PLAZA:
+			return 8
+		WorldLayout.G.YARD:
+			return 9
+		WorldLayout.G.FIELD:
+			return 10
+	return 6  # тропа
 
 static func is_water(code: int) -> bool:
 	return code == WorldLayout.G.WATER or code == WorldLayout.G.PIER
 
-## Клетку рисует шейдер земли (плиткой сверху не кладём).
+## Клетку рисует шейдер земли (плиткой сверху не кладём): всё, кроме мостков.
 static func soft_ground(code: int) -> bool:
-	return code <= WorldLayout.G.PATH
+	return code != WorldLayout.G.PIER
 
 func _add_terrain() -> void:
 	var n: int = world.n
 	var splat := Image.create_empty(n, n, false, Image.FORMAT_R8)
+	var hard := Image.create_empty(n, n, false, Image.FORMAT_R8)  # 1 — мостовая, площадь, двор, поле
 	var water: Array[int] = []
 	var dry := {}  # клетки мостков на берегу
 	for c in world.get("dry", []):
@@ -472,9 +484,25 @@ func _add_terrain() -> void:
 		var l := terrain_layer(code)
 		@warning_ignore("integer_division")  # номер клетки -> строка: деление нацело и нужно
 		splat.set_pixel(i % n, i / n, Color8(l, 0, 0))
+		if l >= HARD_FIRST:
+			@warning_ignore("integer_division")
+			hard.set_pixel(i % n, i / n, Color(1, 0, 0))
 		if not is_water(code) or dry.has(i):
 			dist[i] = 0
 			water.append(i)
+	# мостки, к которым подходит мостовая, — для кромки как камень, а для воды как берег:
+	# улица упирается в доски без щели, вода не наползает на камни
+	var abut := {}
+	for i in n * n:
+		if world.ground[i] != WorldLayout.G.PIER:
+			continue
+		var x := i % n
+		for nb in [i - 1 if x > 0 else -1, i + 1 if x < n - 1 else -1, i - n, i + n]:
+			if nb >= 0 and nb < n * n and terrain_layer(world.ground[nb]) >= HARD_FIRST:
+				@warning_ignore("integer_division")
+				hard.set_pixel(x, i / n, Color(1, 0, 0))
+				abut[i] = true
+				break
 	# глубина воды: шагов до суши (обход в ширину), не дальше 6
 	var head := 0
 	while head < water.size():
@@ -498,6 +526,8 @@ func _add_terrain() -> void:
 		m[i] = 1.0 if is_water(world.ground[i]) else 0.0
 	for i in dry:
 		m[i] = 0.0  # начало мостков — на берегу
+	for i in abut:
+		m[i] = 0.0  # конец моста у мостовой — тоже берег
 	var h := m.duplicate()
 	for y in n:
 		for x in n:
@@ -510,7 +540,13 @@ func _add_terrain() -> void:
 	if _grounds == null:
 		var imgs: Array[Image] = []
 		for t in TERRAIN_TEX:
-			imgs.append(Tiles.tex(t).get_image())
+			var im: Image = Tiles.tex(t).get_image().duplicate()  # все слои массива — одного формата
+			if im.is_compressed():
+				im.decompress()
+			im.clear_mipmaps()
+			im.convert(Image.FORMAT_RGBA8)
+			im.generate_mipmaps()
+			imgs.append(im)
 		_grounds = Texture2DArray.new()
 		_grounds.create_from_images(imgs)
 	var mat := ShaderMaterial.new()
@@ -518,6 +554,7 @@ func _add_terrain() -> void:
 	mat.set_shader_parameter("splat", ImageTexture.create_from_image(splat))
 	mat.set_shader_parameter("depth", ImageTexture.create_from_image(depth))
 	mat.set_shader_parameter("water_mask", ImageTexture.create_from_image(mask))
+	mat.set_shader_parameter("hard_mask", ImageTexture.create_from_image(hard))
 	mat.set_shader_parameter("grounds", _grounds)
 	mat.set_shader_parameter("n", float(n))
 	var s := Sprite2D.new()
@@ -663,6 +700,13 @@ func remove_file(item: Dictionary, file) -> void:
 	_fill_from_hidden(item)
 	_update_pins()
 	file_deleted.emit(item, file)
+
+## Файл переименован (тип мог смениться) — житель переодевается.
+func refresh_look(item: Dictionary, file) -> void:
+	var t := town_of(item)
+	var r := t.files.find(file)
+	if r >= 0:
+		t.looks[r] = Pawn.look(file)
 
 ## В дом вернулся файл (из корзины): выходит жителем, если есть место.
 func refill(item: Dictionary) -> void:

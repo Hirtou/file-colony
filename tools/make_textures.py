@@ -9,7 +9,7 @@ import random
 import sys
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFilter
 
 OUT = Path(__file__).resolve().parent.parent / "assets" / "textures"
 S = 64
@@ -128,98 +128,377 @@ def both(*fs):
     return d
 
 
-def make_ground():
-    # 4 тона травы почти одинаковой яркости; номер варианта чуть сдвигает цвет к земле
-    base = [hx(c) for c in ("#6c7f42", "#728545", "#788a49", "#7e8f4c")]
-    soil = hx("#7f6a4c")
+# ---------------------------------------------------------------- мягкая земля (рисованная)
+# Рисуем в 128x128 (сверхсэмплинг x2), в конце уменьшаем до 64. Все поля и штрихи считаются
+# с заворотом краёв, поэтому тайл бесшовный по обеим осям, а рамок и бордюров нет.
+GR = 128
+_OFFS = [(ox * GR, oy * GR) for ox in (-1, 0, 1) for oy in (-1, 0, 1)]
+
+
+def gc(s):
+    return hx(s)[:3]
+
+
+def glerp(a, b, t):
+    return (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t)
+
+
+def gmul(c, k):
+    return (c[0] * k, c[1] * k, c[2] * k)
+
+
+def gint(c):
+    return (max(0, min(255, int(round(c[0])))), max(0, min(255, int(round(c[1])))), max(0, min(255, int(round(c[2])))))
+
+
+def sstep(a, b, x):
+    if x <= a:
+        return 0.0
+    if x >= b:
+        return 1.0
+    t = (x - a) / (b - a)
+    return t * t * (3 - 2 * t)
+
+
+def gfbm(rng, octs=((3, 0.5), (6, 0.3), (12, 0.2)), gy_mul=1.0, n=GR):
+    """Бесшовный шум 0..1 (нормирован по min/max). gy_mul>1 вытягивает узор вдоль оси X."""
+    fs = []
+    for g, w in octs:
+        fs.append((tile_noise_xy(rng, g, max(1, int(round(g * gy_mul))), n), w))
+    a = [[sum(f(x + 0.5, y + 0.5) * w for f, w in fs) for x in range(n)] for y in range(n)]
+    lo = min(min(r) for r in a)
+    hi = max(max(r) for r in a)
+    sp = (hi - lo) or 1.0
+    return [[(v - lo) / sp for v in r] for r in a]
+
+
+def tile_noise_xy(rng, gx, gy, n=GR):
+    v = [[rng.random() for _ in range(gx)] for _ in range(gy)]
+
+    def f(x, y):
+        u = x * gx / n
+        w = y * gy / n
+        i, j = int(u), int(w)
+        a, b = u - i, w - j
+        a = a * a * (3 - 2 * a)
+        b = b * b * (3 - 2 * b)
+        i0, i1, j0, j1 = i % gx, (i + 1) % gx, j % gy, (j + 1) % gy
+        top = v[j0][i0] * (1 - a) + v[j0][i1] * a
+        bot = v[j1][i0] * (1 - a) + v[j1][i1] * a
+        return top * (1 - b) + bot * b
+    return f
+
+
+def g_image(fn, n=GR):
+    img = Image.new("RGB", (n, n))
+    img.putdata([gint(fn(x, y)) for y in range(n) for x in range(n)])
+    return img
+
+
+def wblur(img, r):
+    """Гауссово размытие с заворотом краёв (тайл остаётся бесшовным)."""
+    n = img.width
+    big = Image.new(img.mode, (3 * n, 3 * n))
+    for i in range(3):
+        for j in range(3):
+            big.paste(img, (i * n, j * n))
+    return big.filter(ImageFilter.GaussianBlur(r)).crop((n, n, 2 * n, 2 * n))
+
+
+def wdraw(img, fn):
+    d = ImageDraw.Draw(img)
+    for ox, oy in _OFFS:
+        fn(d, ox, oy)
+
+
+def g_layer(img, fn, color, opacity=1.0, blur=0.0, shift=(0.0, 0.0)):
+    """Полупрозрачный слой цветом color по маске, которую рисует fn(d, ox, oy). Для теней и мягких пятен."""
+    n = img.width
+    m = Image.new("L", (n, n), 0)
+    d = ImageDraw.Draw(m)
+    for ox, oy in _OFFS:
+        fn(d, ox + shift[0], oy + shift[1])
+    if blur:
+        m = wblur(m, blur)
+    if opacity < 1:
+        m = m.point(lambda v: int(v * opacity))
+    img.paste(gint(color), (0, 0, n, n), m)
+
+
+def g_save(name, img, soften=0.0):
+    if soften:
+        img = wblur(img, soften)
+    out = img.resize((S, S), Image.BOX).convert("RGBA")
+    OUT.mkdir(parents=True, exist_ok=True)
+    out.save(OUT / name)
+
+
+def g_grain(rng, amp):
+    gr = [[(rng.random() - 0.5) * 2 * amp for _ in range(GR)] for _ in range(GR)]
+    return gr
+
+
+# палитра почвы общая: земля, подложка травы и двор стыкуются по цвету
+DIRT_LO, DIRT_HI, DIRT_DK = gc("#74603f"), gc("#8d7857"), gc("#5f4d34")
+
+
+def earth_fn(rng, lo, hi, dk, grain=0.025):
+    a = gfbm(rng, ((4, 0.3), (7, 0.3), (12, 0.25), (24, 0.15)))
+    b = gfbm(rng, ((6, 0.5), (11, 0.5)))
+    gr = g_grain(rng, grain)
+
+    def f(x, y):
+        c = glerp(lo, hi, a[y][x])
+        c = glerp(c, dk, sstep(0.6, 0.92, b[y][x]) * 0.35)
+        return gmul(c, 1 + gr[y][x])
+    return f
+
+
+def g_pebbles(img, rng, count, light, dark, smin, smax, sh=0.45):
+    items = [(rng.uniform(0, GR), rng.uniform(0, GR), rng.uniform(smin, smax), rng.uniform(0.6, 1.0), rng.random())
+             for _ in range(count)]
+
+    def shadow(d, ox, oy):
+        for x, y, r, asp, t in items:
+            d.ellipse((x - r + ox, y - r * asp + oy, x + r + ox, y + r * asp + oy), fill=255)
+    g_layer(img, shadow, gc("#2b2216"), sh, 1.0, (1.6, 1.8))
+
+    def body(d, ox, oy):
+        for x, y, r, asp, t in items:
+            c = gint(glerp(dark, light, 0.25 + 0.6 * t))
+            d.ellipse((x - r + ox, y - r * asp + oy, x + r + ox, y + r * asp + oy), fill=c)
+            hc = gint(glerp(c, (255, 255, 255), 0.22))
+            d.ellipse((x - r * 0.75 + ox, y - r * asp * 0.8 + oy, x + r * 0.2 + ox, y + r * asp * 0.1 + oy), fill=hc)
+    wdraw(img, body)
+
+
+def g_specks(img, rng, count, col, opacity, size=1.0):
+    pts = [(rng.uniform(0, GR), rng.uniform(0, GR), rng.uniform(0.5, 1.0) * size) for _ in range(count)]
+
+    def fn(d, ox, oy):
+        for x, y, r in pts:
+            d.ellipse((x - r + ox, y - r + oy, x + r + ox, y + r + oy), fill=255)
+    g_layer(img, fn, col, opacity, 0.5)
+
+
+# ---------------------------------------------------------------- трава / земля / песок / тропа
+G_DARK, G_LIGHT = gc("#557a35"), gc("#7b9c47")
+BLADES = (gc("#44672b"), gc("#668b3c"), gc("#8ab04f"), gc("#b0c76c"))
+
+
+def g_tufts(img, rng, count, covf, free):
+    items = []
+    for _ in range(count * 4):
+        if len(items) >= count:
+            break
+        x, y = rng.uniform(0, GR), rng.uniform(0, GR)
+        if covf(int(x), int(y)) < 0.35 and rng.random() > free:
+            continue
+        items.append((x, y))
+    blades = []
+    for x, y in items:
+        for _ in range(rng.randint(4, 7)):
+            ang = -math.pi / 2 + rng.gauss(0, 0.85)
+            ln = rng.uniform(5, 10)
+            k = rng.random()
+            ci = 0 if k < 0.14 else (1 if k < 0.55 else (2 if k < 0.93 else 3))
+            ex, ey = x + math.cos(ang) * ln, y + math.sin(ang) * ln
+            blades.append((x + rng.uniform(-2, 2), y + rng.uniform(-1, 2), ex, ey, ci))
+
+    def shadow(d, ox, oy):
+        for x0, y0, x1, y1, ci in blades:
+            d.line([(x0 + ox, y0 + oy), (x1 + ox, y1 + oy)], fill=255, width=2)
+    g_layer(img, shadow, gc("#2a3d1b"), 0.35, 0.8, (1.2, 1.6))
+
+    def body(d, ox, oy):
+        for x0, y0, x1, y1, ci in blades:
+            c = gint(BLADES[ci])
+            d.line([(x0 + ox, y0 + oy), (x1 + ox, y1 + oy)], fill=c, width=2 if ci < 3 else 1)
+    wdraw(img, body)
+
+
+def make_grass():
+    srng = random.Random("ground_grass_shared")
+    cover_n = gfbm(srng, ((4, 0.4), (7, 0.3), (12, 0.3)))
+    low_n = gfbm(srng, ((3, 0.4), (6, 0.35), (10, 0.25)))
+    dap_n = gfbm(srng, ((6, 0.5), (14, 0.5)))
+    soil = earth_fn(random.Random("ground_grass_soil"), DIRT_LO, DIRT_HI, DIRT_DK)
+    thr = [-0.5, 0.24, 0.44, 0.64]
+    counts = [330, 240, 140, 75]
+    free = [0.0, 0.0, 0.0, 0.18]
     for i in range(1, 5):
-        pal = [mix(c, soil, (i - 1) * 0.04) for c in base]
-        ground(f"ground_grass_{i}.png", pal, [2.2, 3, 3, 1.8],
-               detail=tufts(mix(pal[0], hx("#000000"), 0.07), mix(pal[3], hx("#ffffff"), 0.06), 6))
-    dirt = [hx(c) for c in ("#7a6649", "#806b4d", "#867151", "#8b7554")]
-    ground("ground_dirt.png", dirt, [2, 3, 3, 1.5],
-           detail=pebbles(hx("#908059"), hx("#6f5c42"), 5))
-    sand = [hx(c) for c in ("#c4b083", "#cab687", "#d0bc8d", "#d6c294")]
-    ground("ground_sand.png", sand, [2, 3, 3, 2],
-           detail=pebbles(hx("#dccb9f"), hx("#b09c70"), 5))
-    path = [hx(c) for c in ("#7e6a4e", "#85704f", "#8c7753", "#927d59")]
-    ground("ground_path.png", path, [2, 3, 3, 2],
-           detail=pebbles(hx("#a58f6c"), hx("#6a583f"), 14))
+        name = f"ground_grass_{i}.png"
+        rng = random.Random(name)
+        t = thr[i - 1]
+
+        def cov(x, y, t=t):
+            return sstep(t - 0.1, t + 0.12, cover_n[y][x])
+
+        def fn(x, y, cov=cov):
+            cv = cov(x, y)
+            gcol = glerp(G_DARK, G_LIGHT, low_n[y][x] * 0.65 + dap_n[y][x] * 0.35)
+            gcol = gmul(gcol, 1 - 0.14 * 4 * cv * (1 - cv))
+            return glerp(soil(x, y), gcol, cv)
+        img = g_image(fn)
+        g_tufts(img, rng, counts[i - 1], cov, free[i - 1])
+        g_save(name, img, 0.55)
+
+
+def make_dirt():
+    name = "ground_dirt.png"
+    rng = random.Random(name)
+    img = g_image(earth_fn(rng, DIRT_LO, DIRT_HI, DIRT_DK))
+    g_pebbles(img, rng, 9, gc("#a08c68"), gc("#7a6648"), 2.2, 4.2)
+    g_specks(img, rng, 60, gc("#4a3b28"), 0.5, 1.1)
+    g_save(name, img, 0.5)
+
+
+def make_sand():
+    name = "ground_sand.png"
+    rng = random.Random(name)
+    a = gfbm(rng, ((3, 0.5), (6, 0.3), (12, 0.2)))
+    warp = gfbm(rng, ((3, 0.6), (6, 0.4)))
+    b = gfbm(rng, ((8, 0.5), (16, 0.5)))
+    gr = g_grain(rng, 0.02)
+    lo, hi = gc("#c7b283"), gc("#dbc99d")
+
+    def fn(x, y):
+        c = glerp(lo, hi, a[y][x] * 0.75 + b[y][x] * 0.25)
+        ph = 2 * math.pi * (3 * y / GR + 2 * x / GR + (warp[y][x] - 0.5) * 1.6)
+        c = gmul(c, 1 + 0.032 * math.sin(ph) + gr[y][x])
+        return c
+    img = g_image(fn)
+    g_pebbles(img, rng, 5, gc("#e4d6ae"), gc("#b9a577"), 1.6, 3.0, 0.3)
+    g_specks(img, rng, 90, gc("#9a8760"), 0.45, 0.9)
+    g_save(name, img, 0.6)
+
+
+def make_path():
+    name = "ground_path.png"
+    rng = random.Random(name)
+    img = g_image(earth_fn(rng, gc("#86724f"), gc("#9c8661"), gc("#70603f"), 0.028))
+    # светлая пыль и колея-размытость: пара больших мягких пятен
+    dust = gfbm(rng, ((2, 0.6), (4, 0.4)))
+    mask = Image.new("L", (GR, GR))
+    mask.putdata([int(sstep(0.55, 0.85, dust[y][x]) * 90) for y in range(GR) for x in range(GR)])
+    img.paste(gint(gc("#b09a72")), (0, 0, GR, GR), mask)
+    g_pebbles(img, rng, 16, gc("#b4a07c"), gc("#80704f"), 1.5, 3.6)
+    g_specks(img, rng, 70, gc("#5b4b33"), 0.5, 1.0)
+    g_save(name, img, 0.5)
+
+
+def make_ground():
+    make_grass()
+    make_dirt()
+    make_sand()
+    make_path()
     make_street()
     make_plaza()
 
 
+# ---------------------------------------------------------------- камень: булыжник и плиты
+def g_shade(h, k):
+    """Освещение по карте высот h (свет сверху-слева): +-ступень по соседям, с заворотом."""
+    n = len(h)
+    return [[(h[y][(x + 1) % n] - h[y][(x - 1) % n] + h[(y + 1) % n][x] - h[(y - 1) % n][x]) * k
+             for x in range(n)] for y in range(n)]
+
+
 def make_street():
-    """Деревенский булыжник: округлые камни (ячейки Вороного с заворотом), спокойные тона, тёмные швы."""
+    """Деревенский булыжник: округлые камни (Вороной с заворотом) в тёплых серо-бежевых тонах, мягкие швы."""
     name = "ground_street.png"
     rng = random.Random(name)
-    G = 5
-    cs = S / G
-    pts = {}
-    for gy in range(G):
-        for gx in range(G):
-            pts[(gx, gy)] = ((gx + 0.5 + (rng.random() - 0.5) * 0.55) * cs,
-                             (gy + 0.5 + (rng.random() - 0.5) * 0.55) * cs)
-    tones = [hx(c) for c in ("#9b9383", "#a09888", "#a69e8e", "#9a9184")]
-    gap, gap2 = hx("#787164"), hx("#8b8476")
-    light, dark = hx("#bdb5a3"), hx("#7c7568")
-    px = blank()
-    for y in range(S):
-        for x in range(S):
-            cand = []
+    G = 4
+    cs = GR / G
+    jit = [[((rng.random() - 0.5) * 0.46, (rng.random() - 0.5) * 0.46) for _ in range(G)] for _ in range(G)]
+    wx = gfbm(rng, ((4, 0.6), (8, 0.4)))
+    wy = gfbm(rng, ((4, 0.6), (8, 0.4)))
+    mott = gfbm(rng, ((3, 0.4), (6, 0.35), (14, 0.25)))
+    gr = g_grain(rng, 0.03)
+    tones = [gc(c) for c in ("#a29a8a", "#a8a091", "#9c9486", "#aca392", "#a49b88", "#a09a8e")]
+    joint_a, joint_b = gc("#857e6e"), gc("#776f5f")
+    hmap = [[0.0] * GR for _ in range(GR)]
+    info = [[None] * GR for _ in range(GR)]
+    for y in range(GR):
+        for x in range(GR):
+            xw = x + (wx[y][x] - 0.5) * 9
+            yw = y + (wy[y][x] - 0.5) * 9
+            gx0, gy0 = int(xw // cs), int(yw // cs)
+            d1 = d2 = 1e9
+            id1 = None
             for oy in (-1, 0, 1):
                 for ox in (-1, 0, 1):
-                    gx = int(x // cs) + ox
-                    gy = int(y // cs) + oy
-                    cx, cy = pts[(gx % G, gy % G)]
-                    cx += (gx - gx % G) * cs
-                    cy += (gy - gy % G) * cs
-                    cand.append((math.hypot(x + 0.5 - cx, y + 0.5 - cy), gx % G, gy % G, cx, cy))
-            cand.sort()
-            d1, d2 = cand[0], cand[1]
-            e = d2[0] - d1[0]
-            if e < 1.8:
-                c = gap
-            elif e < 3.2:
-                c = gap2
-            else:
-                t = tones[int(hrand(name, d1[1], d1[2]) * 4)]
-                rx, ry = (x + 0.5 - d1[3]) / 6.0, (y + 0.5 - d1[4]) / 6.0
-                lit = -0.5 * (rx + ry) + min(1.0, (e - 3.2) / 6.0) * 0.5
-                lit = round(lit * 3) / 3
-                c = mix(t, light, min(0.6, lit * 0.5)) if lit > 0 else mix(t, dark, min(0.6, -lit * 0.5))
-            px[y][x] = c
-    save(name, px)
+                    gx, gy = gx0 + ox, gy0 + oy
+                    jx, jy = jit[gy % G][gx % G]
+                    sx, sy = (gx + 0.5 + jx) * cs, (gy + 0.5 + jy) * cs
+                    d = math.hypot(xw - sx, yw - sy)
+                    if d < d1:
+                        d2, d1, id1 = d1, d, (gx % G, gy % G)
+                    elif d < d2:
+                        d2 = d
+            e = d2 - d1
+            dome = max(0.0, 1 - (d1 / (cs * 0.62)) ** 2)
+            hmap[y][x] = sstep(0.0, 11.0, e) * 0.75 + dome * 0.3
+            info[y][x] = (id1, e)
+    sh = g_shade(hmap, 0.7)
+
+    def fn(x, y):
+        id1, e = info[y][x]
+        t = tones[int(hrand(name, id1[0], id1[1]) * len(tones))]
+        t = gmul(t, 0.94 + hrand(name, "v", id1[0], id1[1]) * 0.12)
+        c = gmul(t, 1 + (mott[y][x] - 0.5) * 0.14 + gr[y][x] + sh[y][x])
+        jm = 1 - sstep(1.2, 4.6, e)
+        jc = glerp(joint_a, joint_b, mott[y][x])
+        jc = gmul(jc, 1 + gr[y][x] * 1.5)
+        return glerp(c, jc, jm * 0.85)
+    img = g_image(fn)
+    g_specks(img, rng, 50, gc("#6a6153"), 0.35, 1.0)
+    g_save(name, img, 0.55)
 
 
 def make_plaza():
-    """Площадь: крупные тёплые серо-бежевые плиты 32x32 (чуть темнее/ровнее улицы) с кладкой вполсдвига."""
+    """Площадь: крупные светлые плиты со скруглённой фаской и тонкими швами, кладка вперевязку."""
     name = "ground_plaza.png"
     rng = random.Random(name)
-    tones = [hx("#a49c88"), hx("#a9a18d"), hx("#aea693"), hx("#9f9783")]
-    seam, hi, sh = hx("#6e675a"), hx("#bdb5a2"), hx("#8f8777")
-    q = quant(field(rng, ((4, 0.6), (8, 0.4))), [1, 6, 1])
-    px = blank()
-    for y in range(S):
-        r = y // 32
-        for x in range(S):
-            xo = (x - 16 * r) % S
-            slab = xo // 32
-            base = int(hrand(name, r, slab) * 4)
-            c = tones[min(3, max(0, base + q[y][x] - 1))]
-            lx, ly = xo % 32, y % 32
-            if lx == 0 or ly == 0:
-                c = seam
-            elif lx == 1 or ly == 1:
-                c = hi
-            elif lx == 31 or ly == 31:
-                c = sh
-            elif lx in (6, 25) and 6 <= ly <= 25 or ly in (6, 25) and 6 <= lx <= 25:
-                c = mix(c, sh, 0.22)  # тонкая вставка-рамка в плите
-            px[y][x] = c
-    for _ in range(10):
-        put(px, rng.randrange(S), rng.randrange(S), hx("#8d8574"))
-    save(name, px)
+    RH = GR // 2                      # высота плиты (2 ряда на тайл)
+    starts = [[0, 76], [38, 102]]     # стыки по рядам: плиты 76/52 и 64/64 (по кругу)
+    wx = gfbm(rng, ((4, 0.6), (8, 0.4)))
+    wy = gfbm(rng, ((4, 0.6), (8, 0.4)))
+    mott = gfbm(rng, ((2, 0.4), (4, 0.3), (9, 0.3)))
+    vein = gfbm(rng, ((3, 0.5), (7, 0.5)), 1.0)
+    gr = g_grain(rng, 0.025)
+    tones = [gc(c) for c in ("#aea696", "#b3ab9a", "#a9a191", "#b7af9d", "#aca494")]
+    joint = gc("#938b7b")
+    hmap = [[0.0] * GR for _ in range(GR)]
+    info = [[None] * GR for _ in range(GR)]
+    for y in range(GR):
+        for x in range(GR):
+            xw = x + (wx[y][x] - 0.5) * 3.0
+            yw = y + (wy[y][x] - 0.5) * 3.0
+            r = int(yw // RH) % 2
+            ly = yw % RH
+            xm = xw % GR
+            st = starts[r]
+            if st[0] <= xm < st[1]:
+                i, x0, w = 0, st[0], st[1] - st[0]
+            else:
+                i, x0, w = 1, st[1], GR - st[1] + st[0]
+            lx = (xm - x0) % GR
+            e = min(lx, w - lx, ly, RH - ly)
+            hmap[y][x] = sstep(0.0, 7.0, e)
+            info[y][x] = (r, i, e, lx / w, ly / RH)
+    sh = g_shade(hmap, 0.5)
+
+    def fn(x, y):
+        r, i, e, u, v = info[y][x]
+        t = tones[int(hrand(name, r, i) * len(tones))]
+        c = gmul(t, 1 + (mott[y][x] - 0.5) * 0.16 + (vein[y][x] - 0.5) * 0.05 + gr[y][x] + sh[y][x])
+        c = gmul(c, 1.02 - 0.05 * (u + v) * 0.5)
+        jm = 1 - sstep(0.6, 2.4, e)
+        return glerp(c, gmul(joint, 1 + gr[y][x]), jm * 0.9)
+    img = g_image(fn)
+    g_specks(img, rng, 24, gc("#8f877a"), 0.3, 1.1)
+    g_save(name, img, 0.5)
 
 # ---------------------------------------------------------------- кладка / доски
 def block_at(x, y, rowh, rows):
@@ -1590,44 +1869,134 @@ def collage(path):
 
 # ---------------------------------------------------------------- работа: мастерские, поля, рыбалка
 def make_pier():
-    """Мостки и мосты: поперечные доски, бесшовно по обеим осям."""
+    """Мостки и мосты: поперечные доски со стыками и гвоздями, бесшовно по обеим осям."""
     name = "ground_pier.png"
-    px = blank(CLEAR)
-    f = planks(name, 0, 0, S, S, 8)
-    for y in range(S):
-        for x in range(S):
-            px[y][x] = f(x, y)
-    for (x, y) in ((4, 3), (59, 3), (4, 35), (59, 35)):  # гвозди
-        px[y][x] = hx("#3a3530")
-    save(name, px)
+    rng = random.Random(name)
+    BH = GR // 8                       # 8 досок на тайл
+    grain = gfbm(rng, ((3, 0.5), (6, 0.5)), 12.0)       # волокна вытянуты вдоль доски
+    fine = gfbm(rng, ((4, 0.5), (8, 0.5)), 10.0)
+    gr = g_grain(rng, 0.02)
+    lo, hi = gc("#85653f"), gc("#a88660")
+    gap = gc("#43352a")
+    joints = [int(rng.random() * GR) for _ in range(8)]
+    info = {}
+
+    def fn(x, y):
+        k = y // BH
+        ly = y % BH
+        dx = (x - joints[k]) % GR
+        piece = dx // (GR // 2)
+        lx = dx % (GR // 2)
+        t = hrand(name, k, piece)
+        c = glerp(lo, hi, 0.15 + 0.7 * t)
+        c = gmul(c, 1 + (grain[y][x] - 0.5) * 0.22 + (fine[y][x] - 0.5) * 0.1 + gr[y][x])
+        c = gmul(c, 1 + 0.06 * math.cos((ly - BH / 2 + 0.5) / BH * math.pi))   # доска чуть выпуклая
+        if ly <= 1:
+            c = gmul(c, 1.07)
+        gm = max(1 - sstep(0.0, 2.2, lx), sstep(BH - 3.6, BH - 0.8, ly))
+        return glerp(c, gap, gm * 0.9)
+    img = g_image(fn)
+    nails = []
+    for k in range(8):
+        for p in range(2):
+            for off in (6, GR // 2 - 6):
+                for ly in (BH // 2,):
+                    nails.append(((joints[k] + p * (GR // 2) + off) % GR, k * BH + ly))
+
+    def nb(d, ox, oy):
+        for x, y in nails:
+            d.ellipse((x - 1.4 + ox, y - 1.4 + oy, x + 1.4 + ox, y + 1.4 + oy), fill=gint(gc("#3a3028")))
+            d.point((x - 0.8 + ox, y - 0.8 + oy), fill=gint(gc("#a8957a")))
+    wdraw(img, nb)
+    g_save(name, img, 0.45)
 
 
 def make_yard():
-    yard = [hx(c) for c in ("#8a7552", "#917b57", "#98825c", "#9e8861")]
-    ground("ground_yard.png", yard, [2, 3, 3, 2],
-           detail=both(pebbles(hx("#a8946e"), hx("#76634a"), 6), tufts(hx("#b59a52"), hx("#d6bd70"), 5)))
+    """Двор мастерской: утоптанная тёплая земля, щепки, обрезки досок, соломинки."""
+    name = "ground_yard.png"
+    rng = random.Random(name)
+    img = g_image(earth_fn(rng, gc("#86724f"), gc("#9d8760"), gc("#6f5d3f"), 0.028))
+    g_pebbles(img, rng, 6, gc("#a89570"), gc("#7c6a4c"), 1.6, 3.2)
+    chips = []
+    for _ in range(26):
+        chips.append((rng.uniform(0, GR), rng.uniform(0, GR), rng.uniform(0, math.pi), rng.uniform(3.0, 7.5),
+                      rng.uniform(1.0, 2.1), rng.random()))
+
+    def rect_pts(x, y, a, ln, wd, ox, oy):
+        ca, sa = math.cos(a), math.sin(a)
+        pts = []
+        for px, py in ((-ln, -wd), (ln, -wd), (ln, wd), (-ln, wd)):
+            pts.append((x + ox + px * ca - py * sa, y + oy + px * sa + py * ca))
+        return pts
+
+    def shadow(d, ox, oy):
+        for x, y, a, ln, wd, t in chips:
+            d.polygon(rect_pts(x, y, a, ln, wd, ox, oy), fill=255)
+    g_layer(img, shadow, gc("#2b2216"), 0.45, 0.9, (1.4, 1.6))
+
+    def body(d, ox, oy):
+        for x, y, a, ln, wd, t in chips:
+            c = gint(glerp(gc("#b99a64"), gc("#dcc690"), t))
+            d.polygon(rect_pts(x, y, a, ln, wd, ox, oy), fill=c)
+            hc = gint(glerp(c, (255, 250, 230), 0.3))
+            d.line([rect_pts(x, y, a, ln, wd * 0.3, ox, oy)[0], rect_pts(x, y, a, ln, wd * 0.3, ox, oy)[1]], fill=hc, width=1)
+    wdraw(img, body)
+    straw = [(rng.uniform(0, GR), rng.uniform(0, GR), rng.uniform(0, math.pi), rng.uniform(3, 6)) for _ in range(14)]
+
+    def sb(d, ox, oy):
+        for x, y, a, ln in straw:
+            d.line([(x + ox, y + oy), (x + ox + math.cos(a) * ln, y + oy + math.sin(a) * ln)], fill=gint(gc("#c2a85e")), width=1)
+    wdraw(img, sb)
+    g_specks(img, rng, 40, gc("#4f4030"), 0.5, 1.0)
+    g_save(name, img, 0.5)
 
 
 def make_field():
-    """Пашня: тёмные борозды поперёк, ростки рядами."""
+    """Пашня: мягкие борозды поперёк, на гребнях рядами всходы."""
     name = "ground_field.png"
     rng = random.Random(name)
-    soil = [hx(c) for c in ("#5e4630", "#6b5036", "#76593c", "#806243")]
-    px = blank(CLEAR)
-    for y in range(S):
-        for x in range(S):
-            r = y % 16
-            t = 0.75 if r < 3 else (0.15 if r > 11 else 0.45)
-            t += (hrand(name, x // 3, y) - 0.5) * 0.25
-            px[y][x] = ramp(soil, t)
-    sprout = [hx(c) for c in ("#a6c56a", "#7fa24a", "#5c8235")]
+    P = GR // 4                        # период борозды (4 ряда на тайл)
+    cl = gfbm(rng, ((6, 0.5), (12, 0.5)))
+    big = gfbm(rng, ((2, 0.6), (4, 0.4)))
+    gr = g_grain(rng, 0.035)
+    lo, hi = gc("#563f2b"), gc("#85654a")
+    hmap = [[0.5 + 0.5 * math.cos(2 * math.pi * (y - P / 2) / P) for _ in range(GR)] for y in range(GR)]
+    sh = g_shade(hmap, 0.17)
+
+    def fn(x, y):
+        hf = hmap[y][x]
+        c = glerp(lo, hi, hf * 0.8 + cl[y][x] * 0.2)
+        return gmul(c, 1 + sh[y][x] + (big[y][x] - 0.5) * 0.12 + gr[y][x])
+    img = g_image(fn)
+    g_pebbles(img, rng, 10, gc("#8f735a"), gc("#5f4733"), 1.3, 2.5, 0.35)
+    plants = []
     for row in range(4):
-        y0 = row * 16 + 7
+        cy = row * P + P // 2
         for k in range(8):
-            x0 = k * 8 + 3 + rng.randrange(2)
-            for (dx, dy, c) in ((0, 0, 1), (-1, -1, 0), (1, -1, 0), (0, -2, 0), (0, 1, 2)):
-                put(px, x0 + dx, y0 + dy, sprout[c])
-    save(name, px)
+            plants.append((k * 16 + (8 if row % 2 else 0) + 4 + rng.uniform(-1.2, 1.2), cy + rng.uniform(-1, 1), rng.random()))
+    leaves = []
+    for x, y, t in plants:
+        base = rng.uniform(0, math.pi * 2)
+        for j in range(5):
+            a = base + j * (2 * math.pi / 5) + rng.uniform(-0.3, 0.3)
+            ln = rng.uniform(4.5, 7.5)
+            leaves.append((x, y, a, ln, t))
+
+    def shadow(d, ox, oy):
+        for x, y, a, ln, t in leaves:
+            d.line([(x + ox, y + oy), (x + ox + math.cos(a) * ln, y + oy + math.sin(a) * ln)], fill=255, width=3)
+    g_layer(img, shadow, gc("#20180f"), 0.4, 1.0, (1.6, 2.0))
+
+    def body(d, ox, oy):
+        for x, y, a, ln, t in leaves:
+            c = gint(glerp(gc("#5d8a36"), gc("#98bf5c"), t))
+            ex, ey = x + ox + math.cos(a) * ln, y + oy + math.sin(a) * ln
+            d.line([(x + ox, y + oy), (ex, ey)], fill=c, width=3)
+            d.ellipse((ex - 1.4, ey - 1.4, ex + 1.4, ey + 1.4), fill=gint(glerp(c, gc("#c3dc86"), 0.35)))
+        for x, y, t in plants:
+            d.ellipse((x - 1.8 + ox, y - 1.8 + oy, x + 1.8 + ox, y + 1.8 + oy), fill=gint(gc("#3f6a28")))
+    wdraw(img, body)
+    g_save(name, img, 0.5)
 
 
 def make_anvil():

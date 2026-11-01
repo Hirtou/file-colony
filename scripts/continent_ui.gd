@@ -16,6 +16,7 @@ signal stats_pressed
 const STATS := preload("res://scripts/stats_view.gd")
 const HELP := preload("res://scripts/help_view.gd")
 const TRASH := preload("res://scripts/trash_view.gd")
+const PROPS := preload("res://scripts/props_view.gd")
 
 const BG := Color(0.065, 0.075, 0.1, 0.88)
 const TEXT := Color(0.92, 0.93, 0.96)
@@ -59,6 +60,7 @@ var minimap: Minimap
 var stats: PanelContainer  # окно статистики (stats_view.gd)
 var help: PanelContainer   # справка F1 (help_view.gd)
 var trash: PanelContainer  # корзина (trash_view.gd)
+var props: PanelContainer  # свойства файла или папки (props_view.gd)
 var _legend_panel: PanelContainer
 var _files_rows := 0
 
@@ -388,6 +390,9 @@ func _ready() -> void:
 	trash = TRASH.new()
 	trash.visibility_changed.connect(func(): shade.visible = trash.visible or stats.visible or tree.visible)
 	root.add_child(trash)
+	props = PROPS.new()
+	props.visibility_changed.connect(func(): shade.visible = props.visible or stats.visible or tree.visible)
+	root.add_child(props)
 
 	# подсказка у мыши
 	_tip = PanelContainer.new()

@@ -5,7 +5,7 @@
 - Правь файлы точечно (Edit), не переписывай целиком.
 - Не читай весь проект без нужды.
 - В конце ответа одной строкой пиши, как запустить.
-- Реальные файлы диска НЕ читать и НЕ удалять (дерево папок только фейковое).
+- «Мои диски» читают с настоящих дисков ТОЛЬКО имена и размеры (scripts/disk_scan.gd). Файлы НЕ читать, НЕ менять и НЕ удалять; открыть (не программу) или показать в проводнике — только по клику игрока. Скриншоты и тесты — на выдуманных дисках.
 - Не добавлять анимации, графику, клики, удаление, пока не попросят.
 
 # Проект
@@ -29,12 +29,13 @@
 - scripts/menu.gd — главное меню на 3D-фоне (Globe + небо космоса); scripts/planet.gd — старая 2D-планета (форматы размеров)
 - scripts/space.gd — космос в 3D: камера-орбита, солнце, перелёт между дисками; scripts/globe.gd + shaders/globe.gdshader — 3D-планета
 - scripts/sun.gd, scripts/stars.gd — далёкое солнце и звёзды (параллакс)
-- scripts/fake_tree.gd — FakeTree.generate(seed) -> дерево Folder (выдуманное)
+- scripts/fake_tree.gd — FakeTree.generate(seed) -> дерево Folder (выдуманное); scripts/disk_scan.gd — DiskScan.scan(диск) -> такое же дерево с настоящего диска
+- scripts/trash_view.gd — окно «Корзина» (Game.trash: удалённые жители, вернуть/очистить)
 - scripts/city_sites.gd — где на 3D-планете стоят города и что вокруг (океан, сухость)
 - scripts/world_layout.gd — карта города (build_city): деревня, дома, мебель, мастерские, озёра, река, океан, поля, мостки
 - scripts/world_map.gd — рисование карты, посёлки, удаление/вставка файлов
 - scripts/residents.gd — жители посёлка (дела, болтовня, сон); scripts/pawn.gd — человечек
-- scripts/wildlife.gd — утки, круги от рыб, дым кузницы; shaders/terrain.gdshader — мягкая земля и вода; shaders/cloud_shadows.gdshader — тени облаков
+- scripts/wildlife.gd — круги от рыб, дым кузницы; shaders/terrain.gdshader — мягкая земля и вода; shaders/cloud_shadows.gdshader — тени облаков
 - scripts/hunt.gd — удаление: киллеры, погоня, выстрел
 - scripts/continent.gd + continent_ui.gd — материк и его интерфейс (тема make_theme, мини-карта, легенда); scripts/family_tree.gd — семейное древо (родословная сверху вниз)
 - scripts/stats_view.gd — окно «Статистика города» (I); scripts/help_view.gd — справка по клавишам (F1)

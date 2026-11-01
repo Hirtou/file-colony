@@ -50,6 +50,7 @@ func _ready() -> void:
 	ui.stats_pressed.connect(_open_stats)
 	ui.stats.show_on_map.connect(_stats_to_map)
 	ui.trash.restored.connect(_on_restored)
+	ui.props.rename_requested.connect(_rename)
 	ui.speed_pressed.connect(func():
 		if paused:
 			paused = false  # с паузы кнопка просто снимает паузу
@@ -162,10 +163,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			ui.help.hide()
 		return
-	if ui.trash.visible:
+	if ui.trash.visible or ui.props.visible:
 		if event.is_action_pressed("ui_cancel"):
 			get_viewport().set_input_as_handled()
 			ui.trash.hide()
+			ui.props.hide()
 		return
 	if ui.stats.visible:
 		# открыта статистика: Esc или I — закрыть
@@ -195,6 +197,14 @@ func _unhandled_input(event: InputEvent) -> void:
 			_paste(map.selected.item)
 		elif event.keycode == KEY_DELETE and map.selected.get("type") == "file":
 			_delete(map.selected.item, map.selected.index)
+		elif event.keycode == KEY_F2 and not event.echo and map.selected.get("type") == "file":
+			get_viewport().set_input_as_handled()
+			_props(map.selected, true)
+			return
+		elif event.keycode == KEY_ENTER and event.alt_pressed and not map.selected.is_empty():
+			get_viewport().set_input_as_handled()
+			_props(map.selected)
+			return
 		elif event.keycode == KEY_L and not event.echo and not event.ctrl_pressed:
 			ui.toggle_legend()
 		elif (event.keycode == KEY_P or event.keycode == KEY_SPACE) and not event.echo:
@@ -234,9 +244,9 @@ func _unhandled_input(event: InputEvent) -> void:
 
 # --- правая кнопка: копировать, вставить, удалить ---
 
-enum M { COPY, PASTE, DELETE, OPEN, FAMILY, CUT }
+enum M { COPY, PASTE, DELETE, OPEN, FAMILY, CUT, OPEN_FILE, REVEAL, FOLLOW, RENAME, COPY_PATH, PROPS, STATS, TRASH }
 
-## Меню для того, что под мышью (_menu_for).
+## Меню для того, что под мышью (_menu_for): житель, дом/город или пустая земля.
 func _open_menu(at: Vector2) -> void:
 	var h := _menu_for
 	var clip = Game.clipboard
@@ -245,27 +255,64 @@ func _open_menu(at: Vector2) -> void:
 		select(h)
 		var f = h.item.folder.files[h.index]
 		entries.append([f.name, -1])
+		if DiskScan.can_open(f):
+			entries.append(["Открыть", M.OPEN_FILE])
+		if f.path != "":
+			entries.append(["Показать в проводнике", M.REVEAL])
+		entries.append(["Следить за жителем", M.FOLLOW])
+		entries.append(["", -1])
 		entries.append(["Копировать", M.COPY])
 		entries.append(["Вырезать (переселить)", M.CUT])
 		if clip != null:
 			entries.append([I18n.t("Переселить «%s» в этот дом" if Game.clip_cut else "Вставить «%s» в этот дом") % clip.name, M.PASTE])
+		entries.append(["Переименовать  (F2)", M.RENAME])
+		entries.append(["Копировать путь", M.COPY_PATH])
+		entries.append(["", -1])
+		entries.append(["Свойства  (Alt+Enter)", M.PROPS])
 		entries.append(["Семейное древо", M.FAMILY])
 		if not map.is_hunted(h.item, h.index):
 			entries.append(["Удалить", M.DELETE])
 	elif h.get("type") == "folder":
-		entries.append([h.item.folder.name, -1])
-		if h.item.kind == "house":
-			entries.append([I18n.t("Переселить «%s» сюда" if Game.clip_cut else "Вставить «%s» сюда") % clip.name if clip != null else "Вставить (буфер пуст)", M.PASTE])
-		if h.item.kind == "city":
+		var it: Dictionary = h.item
+		entries.append([it.folder.name, -1])
+		if it.kind != "hut":
 			entries.append(["Открыть", M.OPEN])
+		if it.folder.path != "":
+			entries.append(["Показать в проводнике", M.REVEAL])
+		if it.kind == "house":
+			entries.append([I18n.t("Переселить «%s» сюда" if Game.clip_cut else "Вставить «%s» сюда") % clip.name if clip != null else "Вставить (буфер пуст)", M.PASTE])
+		entries.append(["Копировать путь", M.COPY_PATH])
+		entries.append(["", -1])
+		entries.append(["Свойства  (Alt+Enter)", M.PROPS])
+		entries.append(["Семейное древо", M.FAMILY])
+		if it.kind == "city":
+			entries.append(["Статистика города  (I)", M.STATS])
+	else:
+		# пустая земля — то, что про весь город
+		entries.append([city.name, -1])
+		entries.append(["Статистика города  (I)", M.STATS])
+		entries.append(["Корзина", M.TRASH])
 		entries.append(["Семейное древо", M.FAMILY])
 	if entries.size() > 1:
 		ui.show_menu(entries, at)
 
 func _on_menu(id: int) -> void:
 	var h := _menu_for
+	match id:
+		M.STATS:
+			_open_stats()
+			return
+		M.TRASH:
+			ui.hide_tip()
+			ui.trash.open()
+			return
+		M.FAMILY:
+			if h.is_empty():
+				_open_tree()
+				return
 	if h.is_empty():
 		return
+	var file = h.item.folder.files[h.index] if h.type == "file" else null
 	match id:
 		M.COPY:
 			_copy(h.item, h.index)
@@ -279,7 +326,121 @@ func _on_menu(id: int) -> void:
 			select(h)
 			go_to(h.item.path)
 		M.FAMILY:
-			_open_tree(h.item.folder.files[h.index] if h.type == "file" else h.item.folder)
+			_open_tree(file if file != null else h.item.folder)
+		M.OPEN_FILE:
+			_say(DiskScan.open_file(file), I18n.t("Открываю «%s»…") % file.name)
+		M.REVEAL:
+			if file != null:
+				_say(DiskScan.reveal(file.path, true), I18n.t("«%s» — в проводнике") % file.name)
+			else:
+				_say(DiskScan.reveal(h.item.folder.path, false), I18n.t("«%s» — в проводнике") % h.item.folder.name)
+		M.FOLLOW:
+			_focus_file(h.item, h.index)
+			ui.toast(I18n.t("Камера следит за «%s» — WASD, чтобы отпустить") % file.name, Color(0.7, 0.9, 1.0))
+		M.RENAME:
+			_props(h, true)
+		M.COPY_PATH:
+			DisplayServer.clipboard_set(_path_of(h.item, file))
+			ui.toast(I18n.t("Путь скопирован: %s") % _path_of(h.item, file), Color(0.7, 1.0, 0.7))
+		M.PROPS:
+			_props(h)
+
+## Итог действия с настоящим файлом: err == "" — всё хорошо (ok), иначе — почему нет.
+func _say(err: String, ok: String) -> void:
+	if err == "":
+		ui.toast(ok, Color(0.7, 1.0, 0.7))
+	else:
+		ui.toast(I18n.t(err), Color(1.0, 0.8, 0.5))
+
+## Путь файла или папки: настоящий (на диске), а у выдуманных — путь в игре «C:/Город/Дом/файл».
+func _path_of(item: Dictionary, file = null) -> String:
+	if file != null and file.path != "":
+		return String(file.path).replace("/", "\\")
+	if file == null and item.folder.path != "":
+		return String(item.folder.path).replace("/", "\\")
+	var names := []
+	for f in item.path:
+		names.append(f.name)
+	if file != null:
+		names.append(file.name)
+	return "\\".join(names)
+
+## Окно «Свойства» для жителя или папки (rename — сразу в поле имени).
+func _props(h: Dictionary, rename := false) -> void:
+	ui.hide_tip()
+	var it: Dictionary = h.item
+	if h.type == "file":
+		var f = it.folder.files[h.index]
+		var rows := [["Тип", I18n.t("файл (%s)") % I18n.t(FakeTree.TYPE_NAMES[f.type])], ["Размер", FakeTree.format_size(f.size)],
+			["Дом", it.folder.name], ["Сейчас", map.file_where(it, h.index)]]
+		if f.path != "":
+			rows.append(["На диске", String(f.path).replace("/", "\\")])
+			var m := DiskScan.modified(f.path)
+			if m != "":
+				rows.append(["Изменён", m])
+		else:
+			rows.append(["На диске", I18n.t("нет — живёт только в игре")])
+		rows.append(["Путь в игре", _game_path(it, f)])
+		ui.props.open(f.name, rows, _path_of(it, f), f, rename)
+		return
+	if rename:
+		return  # папки пока не переименовываем
+	var kinds := {"city": "город", "house": "дом", "hut": "хижина (пустая папка)"}
+	var rows := [["Тип", I18n.t(kinds[it.kind])], ["Файлов", str(it.folder.total_files())],
+		["Папок внутри", str(_count_folders(it.folder) - 1)], ["Размер", FakeTree.format_size(it.folder.total_size())]]
+	if it.folder.path != "":
+		rows.append(["На диске", String(it.folder.path).replace("/", "\\")])
+		var m := DiskScan.modified(it.folder.path)
+		if m != "":
+			rows.append(["Изменена", m])
+	rows.append(["Путь в игре", _game_path(it)])
+	ui.props.open(it.folder.name, rows, _path_of(it))
+
+## Путь в игре (через названия папок), даже у настоящих файлов.
+func _game_path(item: Dictionary, file = null) -> String:
+	var names := []
+	for f in item.path:
+		names.append(f.name)
+	if file != null:
+		names.append(file.name)
+	return " / ".join(names)
+
+func _count_folders(f) -> int:
+	var n := 1
+	for c in f.children:
+		n += _count_folders(c)
+	return n
+
+## Переименовать жителя (только в игре): имя свободно в доме, без запрещённых знаков.
+func _rename(file, new_name: String) -> void:
+	var it := _house_of(file)
+	if it.is_empty():
+		return
+	if new_name == file.name:
+		ui.props.hide()
+		return
+	if new_name == "" or new_name.ends_with(".") or new_name.ends_with(" "):
+		ui.toast("Пустое имя или точка/пробел в конце — так нельзя", Color(1.0, 0.8, 0.5))
+		return
+	for ch in "\\/:*?\"<>|":
+		if new_name.contains(ch):
+			ui.toast(I18n.t("В имени нельзя: %s") % "\\ / : * ? \" < > |", Color(1.0, 0.8, 0.5))
+			return
+	for f in it.folder.files:
+		if f != file and f.name.to_lower() == new_name.to_lower():
+			ui.toast(I18n.t("В доме уже есть «%s»") % new_name, Color(1.0, 0.8, 0.5))
+			return
+	var old: String = file.name
+	if file.origin == "":
+		file.origin = old  # внешность жителя остаётся прежней
+	file.name = new_name
+	file.type = DiskScan.type_of(new_name)  # другое расширение — другая одежда
+	map.refresh_look(it, file)
+	_refresh(it)
+	select({"type": "file", "item": it, "index": it.folder.files.find(file)})
+	ui.props.hide()
+	Game.sfx("paste")
+	ui.toast(I18n.t("«%s» теперь «%s»") % [old, new_name], Color(0.7, 1.0, 0.7))
 
 ## Клик по типу в легенде: метки над домами с такими файлами; повторный клик — снять.
 func _on_type(t: int) -> void:
@@ -333,10 +494,10 @@ func _tree_to_map(p) -> void:
 	ui.tree.hide()
 	if not FamilyTree.is_folder(p):
 		var house = ui.tree.parent_of(p)
-		var it: Dictionary = map.by_folder.get(house, {})
-		if not it.is_empty():
-			go_to(it.path, false, false)
-			_focus_file(it, house.files.find(p))
+		var home: Dictionary = map.by_folder.get(house, {})
+		if not home.is_empty():
+			go_to(home.path, false, false)
+			_focus_file(home, house.files.find(p))
 		else:
 			_other_city(p)
 		return
@@ -501,7 +662,7 @@ func _process(delta: float) -> void:
 		_info_t = 0.0
 		_show_info()
 	_update_arrow()
-	cam.locked = ui.tree.visible or ui.stats.visible or ui.help.visible
+	cam.locked = ui.tree.visible or ui.stats.visible or ui.help.visible or ui.trash.visible or ui.props.visible
 	ui.minimap.view = map.view_rect()
 	ui.minimap.mark = _selected_pos() if not map.selected.is_empty() else Vector2.INF
 	ui.minimap.night = map.night
@@ -623,12 +784,12 @@ func _on_search(text: String) -> void:
 	var by_file: bool = f.type >= 0 or f.size >= 0
 	var active: bool = low.length() >= 2 or by_file or f.city >= 0
 	if active:
-		var city = map.items.filter(func(it): return it.depth == 1)[f.city].folder if f.city >= 0 else null
+		var in_city = map.items.filter(func(it): return it.depth == 1)[f.city].folder if f.city >= 0 else null
 		var lim: Array = ContinentUI.SIZE_LIMITS[f.size] if f.size >= 0 else []
 		for e in _index:
 			if low.length() >= 2 and not e.low.contains(low):
 				continue
-			if city != null and not e.item.path.has(city):
+			if in_city != null and not e.item.path.has(in_city):
 				continue
 			if by_file:
 				if e.type != "file":
@@ -684,7 +845,7 @@ func debug_view(view: String) -> void:
 	for it in map.items:
 		if view == "city" and it.kind == "city" and it.depth == 1 and (best == null or it.r > best.r):
 			best = it
-		elif view in ["house", "pawns", "closeup", "hunt", "chase", "move", "filter", "find"] and it.kind == "house" and (best == null or it.folder.file_count > best.folder.file_count):
+		elif view in ["house", "pawns", "closeup", "hunt", "chase", "move", "filter", "find", "rmb", "props"] and it.kind == "house" and (best == null or it.folder.file_count > best.folder.file_count):
 			best = it
 		elif view.begins_with("family") and it.kind == "house" and it.depth >= 3 and (best == null or it.folder.file_count > best.folder.file_count):
 			best = it  # дом во вложенном районе: видны дедушка, отец, братья, дети
@@ -751,10 +912,10 @@ func debug_view(view: String) -> void:
 						return
 		return
 	if view == "ducks":
-		# утки на воде, круги от рыб; немного подождать, чтобы поплыли
+		# вода крупно: круги от рыб; немного подождать, чтобы разошлись
 		var wl = map._wild
-		if not wl._ducks.is_empty():
-			cam.position = wl._ducks[0].pos
+		if not wl._water.is_empty():
+			cam.position = wl._cell_pos(wl._water[0])
 			cam.zoom = Vector2.ONE * 2.2
 			for i in 90:
 				wl.update(1.0 / 30.0, map.view_rect())
@@ -801,6 +962,18 @@ func debug_view(view: String) -> void:
 		return
 	go_to(best.path, true)
 	select({"type": "folder", "item": best})
+	if view == "rmb" or view == "props":
+		# меню правой кнопки на жителе / его свойства
+		cam.zoom *= 1.6
+		for i in best.folder.files.size():
+			if map.resident_id(best, i) >= 0:
+				_menu_for = {"type": "file", "item": best, "index": i}
+				if view == "props":
+					_props(_menu_for)
+				else:
+					_open_menu(get_viewport().get_canvas_transform() * map.resident_pos(best, i))
+				break
+		return
 	if view == "pawns":
 		cam.zoom *= 2.6
 	elif view == "hunt":

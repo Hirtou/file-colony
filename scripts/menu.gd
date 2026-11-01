@@ -1,10 +1,10 @@
 extends Node2D
 ## Главное меню: «Мои диски», «Песочница», «Настройки», «Выход».
 ## Фон — 3D-космос как в игре: звёздное небо, далёкое солнце и медленно вращающаяся планета.
-## Всё выдуманное, файлы не читаются.
+## «Мои диски» — настоящие диски (только имена и размеры), песочница — выдуманные.
 
 const SPACE := "res://scenes/space.tscn"
-const VERSION := "0.3"
+const VERSION := "0.4"
 const SUN_DIR := Vector3(-0.9, 0.3, 0.3)  # солнце слева сбоку — освещена сторона к заголовку
 const CAM_SHIFT := -2.6      # планета правее центра; с открытой панелью — ещё правее
 const CAM_SHIFT_PANEL := -4.6
@@ -129,7 +129,7 @@ func _build_ui() -> void:
 	_sandbox = _make_sandbox(root)
 	_settings = _make_settings(root)
 
-	var note := _label(root, "Все диски, папки и файлы выдуманные — настоящие файлы не читаются и не меняются.", 13)
+	var note := _label(root, "«Мои диски» видят только имена и размеры файлов. Удаление и переселение — только в игре, настоящие файлы не меняются.", 13)
 	note.modulate.a = 0.5
 	note.anchor_top = 1.0
 	note.anchor_bottom = 1.0
@@ -354,6 +354,6 @@ func debug_view(view: String) -> void:
 		Game.use_sandbox(12345, 5)  # sandbox_space / sandbox_map — песочница из 5 планет
 		view = view.trim_prefix("sandbox_")
 	else:
-		Game.use_my_disks()
+		Game.use_my_disks(false)  # скриншоты — на выдуманных дисках, без настоящих имён
 	var space := Game.switch(self, SPACE)
 	space.debug_view(view)

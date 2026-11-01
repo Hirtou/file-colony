@@ -18,8 +18,9 @@ class FileItem:
 	var type: int
 	var size: int
 	var origin := ""  # копия: имя оригинала (житель-копия выглядит так же)
+	var path := ""    # где лежит на настоящем диске («Мои диски»); "" — выдуманный или копия из игры
 
-	## Копия файла с новым именем.
+	## Копия файла с новым именем (на диске её нет — path пустой).
 	func copy_as(new_name: String) -> FileItem:
 		var f := FileItem.new()
 		f.name = new_name
@@ -51,6 +52,7 @@ class Folder:
 	var files: Array = []
 	var children: Array = []
 	var has_roof := true  # у дома есть крыша (пока ни на что не влияет: крыши не рисуются)
+	var path := ""        # папка на настоящем диске («Мои диски»); "" — выдуманная
 
 	func is_city() -> bool:
 		return children.size() > 0

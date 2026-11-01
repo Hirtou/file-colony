@@ -107,7 +107,7 @@ def text(img):
     d.text((x, 276), "Файловая система как живой мир", font=font("segoeui.ttf", 22), fill=GREY)
     f = font("seguisb.ttf", 16)
     cx = x
-    for t in ("Godot 4.7", "English · Русский", "Windows", "v0.3"):
+    for t in ("Godot 4.7", "English · Русский", "Windows", "v0.4"):
         cx = chip(d, cx, 326, t, f)
 
 

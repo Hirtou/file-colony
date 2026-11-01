@@ -3,12 +3,17 @@ shader_type canvas_item;
 // слои плавно перетекают друг в друга по неровной (шумной) границе. У воды песок темнеет (мокрый),
 // по кромке — светлая пена; вода у берега светлее, вдали темнее, по ней бежит лёгкая рябь.
 
-uniform sampler2D splat : filter_nearest;               // R*255 — слой клетки: 0..6 текстуры (под водой — песок)
+// Мостовая, площадь, двор и поле — «твёрдые» слои: идут по клеткам ровно, но кромка неровная (камни
+// выступают), углы скруглены, по краю — тёмный бордюр и лёгкая тень на тропу вокруг.
+
+uniform sampler2D splat : filter_nearest;               // R*255 — слой клетки: 0..6 мягкие, 7..10 твёрдые (под водой — песок)
 uniform sampler2D water_mask : filter_linear;           // R — вода, размытая по соседям: берег — линия уровня 0.42
+uniform sampler2D hard_mask : filter_linear;            // R — 1 у твёрдых клеток; кромка — линия уровня 0.5
 uniform sampler2D depth : filter_linear;                // R — глубина воды: 0 у берега .. 1 далеко
 uniform sampler2DArray grounds : filter_linear_mipmap, repeat_enable;
 uniform float n = 64.0;                                 // клеток по стороне карты
 
+const int HARD = 7;  // с этого слоя — твёрдые
 const vec3 SHALLOW = vec3(0.30, 0.43, 0.44);
 const vec3 DEEP = vec3(0.13, 0.22, 0.29);
 
@@ -50,11 +55,41 @@ void fragment() {
 			continue;
 		}
 		int l = layer_at(c);
+		if (l >= HARD) {
+			l = l == 10 ? 4 : 6;  // под мостовой, площадью, двором — натоптанная тропа, под полем — земля
+		}
 		w *= w * (0.55 + 0.9 * noise(p * 2.2 + float(l) * 13.7));
 		land += texture(grounds, vec3(p, float(l))).rgb * w;
 		lw += w;
 	}
 	land /= max(lw, 0.0001);
+	// твёрдые слои поверх: кромка — линия уровня маски, шум делает её неровной
+	float hm = texture(hard_mask, UV).r;
+	hm += (noise(p * 2.6 + 11.0) - 0.5) * 0.18 + (noise(p * 7.3 + 3.0) - 0.5) * 0.1;
+	float haa = max(fwidth(hm), 0.015);
+	float cover = smoothstep(0.5 - haa, 0.5 + haa, hm);
+	land *= 1.0 - 0.16 * smoothstep(0.25, 0.5, hm) * (1.0 - cover);  // тень от бордюра на тропу
+	if (cover > 0.0) {
+		vec2 pb = floor(p);
+		vec3 hard = vec3(0.0);
+		float hw = 0.0;
+		for (int k = 0; k < 9; k++) {
+			vec2 c = pb + vec2(float(k % 3) - 1.0, float(k / 3) - 1.0);
+			int l = layer_at(c);
+			if (l < HARD) {
+				continue;
+			}
+			float w = smoothstep(1.25, 0.0, length(p - (c + 0.5)));
+			w = w * w * w;
+			hard += texture(grounds, vec3(p, float(l))).rgb * w;
+			hw += w;
+		}
+		if (hw > 0.0) {
+			hard /= hw;
+			hard *= mix(0.8, 1.0, smoothstep(0.5, 0.6, hm));  // тёмный бордюр по краю
+			land = mix(land, hard, cover);
+		}
+	}
 	// берег — линия уровня размытой маски воды: гладкая, без зубцов; лёгкий неподвижный изгиб шумом
 	float field = texture(water_mask, UV).r + (noise(p * 0.8 + 5.0) - 0.5) * 0.08;
 	const float LEVEL = 0.42;
