@@ -2,7 +2,7 @@
 
 **English** · [Русский](#русский)
 
-![File Colony](docs/images/v2_space.png)
+![File Colony](docs/images/banner.png)
 
 ---
 
