@@ -129,7 +129,7 @@ const WEATHER := preload("res://scripts/weather.gd")
 var weather: Node2D           # дождь (weather.gd); силу задаёт continent
 var _clouds: Sprite2D         # тени облаков (днём)
 
-signal file_deleted(item: Dictionary)  # файл дома удалён (киллеры выстрелили)
+signal file_deleted(item: Dictionary, file)  # файл дома удалён (киллеры выстрелили)
 signal files_changed(item: Dictionary) # в доме поменялись файлы (переселение)
 var _marked: Array = []
 
@@ -662,7 +662,12 @@ func remove_file(item: Dictionary, file) -> void:
 		t.remove(r)
 	_fill_from_hidden(item)
 	_update_pins()
-	file_deleted.emit(item)
+	file_deleted.emit(item, file)
+
+## В дом вернулся файл (из корзины): выходит жителем, если есть место.
+func refill(item: Dictionary) -> void:
+	_fill_from_hidden(item)
+	_update_pins()
 
 ## В доме освободилось место — ждавший за «+N» файл выходит жителем.
 func _fill_from_hidden(item: Dictionary) -> void:

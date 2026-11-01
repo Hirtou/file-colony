@@ -32,6 +32,7 @@ var _roots := {}               # деревья папок дисков
 var _sites := {}               # города на планетах
 var clipboard = null           # скопированный файл (FileItem, выдуманный), общий для всех планет
 var clip_cut := false          # файл вырезан: «Вставить» переселит его, а не скопирует
+var trash: Array = []          # корзина: [{file, house, disk, city}], новые сверху (выдуманные файлы)
 var _fps: Label
 var _players: Array[AudioStreamPlayer] = []  # два плеера — для плавного перехода между треками
 var _cur := 0
@@ -156,6 +157,18 @@ func forget_worlds() -> void:
 	_sites.clear()
 	clipboard = null
 	clip_cut = false
+	trash.clear()
+
+## Удалённый житель — в корзину.
+func to_trash(file, house, disk_name: String, city_name: String) -> void:
+	trash.push_front({"file": file, "house": house, "disk": disk_name, "city": city_name})
+
+## Вернуть жителя из корзины в его дом (имя занято — «Имя - копия»).
+func restore(e: Dictionary) -> void:
+	trash.erase(e)
+	e.file.name = FakeTree.copy_name(e.house, e.file.name)
+	e.house.files.append(e.file)
+	e.house.file_count = e.house.files.size()
 
 func time_speed() -> int:
 	return TIME_SPEEDS[settings.time_speed]

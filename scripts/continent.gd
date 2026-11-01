@@ -49,6 +49,7 @@ func _ready() -> void:
 	ui.tree.show_on_map.connect(_tree_to_map)
 	ui.stats_pressed.connect(_open_stats)
 	ui.stats.show_on_map.connect(_stats_to_map)
+	ui.trash.restored.connect(_on_restored)
 	ui.speed_pressed.connect(func():
 		if paused:
 			paused = false  # с паузы кнопка просто снимает паузу
@@ -160,6 +161,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.is_action_pressed("ui_cancel"):
 			get_viewport().set_input_as_handled()
 			ui.help.hide()
+		return
+	if ui.trash.visible:
+		if event.is_action_pressed("ui_cancel"):
+			get_viewport().set_input_as_handled()
+			ui.trash.hide()
 		return
 	if ui.stats.visible:
 		# открыта статистика: Esc или I — закрыть
@@ -420,9 +426,19 @@ func _delete(item: Dictionary, index: int) -> void:
 		map.remove_file(item, f)  # житель не нарисован (за «+N») — удаляем сразу
 		ui.toast(I18n.t("Удалено: %s") % f.name, Color(1.0, 0.55, 0.45))
 
-func _on_file_deleted(item: Dictionary) -> void:
-	ui.toast("Файл удалён", Color(1.0, 0.55, 0.45))
+func _on_file_deleted(item: Dictionary, file) -> void:
+	Game.to_trash(file, item.folder, disk_name, city.name)
+	ui.toast(I18n.t("«%s» в корзине") % file.name, Color(1.0, 0.55, 0.45))
 	_refresh(item)
+
+## Житель вернулся из корзины: если его дом в этом городе — выходит на улицу.
+func _on_restored(e: Dictionary) -> void:
+	var it: Dictionary = map.by_folder.get(e.house, {})
+	if not it.is_empty():
+		map.refill(it)
+		_refresh(it)
+	Game.sfx("paste")
+	ui.toast(I18n.t("«%s» вернулся домой: %s") % [e.file.name, e.house.name], Color(0.7, 1.0, 0.7))
 
 ## Файлы дома поменялись: поиск, список в панели, выбор.
 func _refresh(item: Dictionary) -> void:
@@ -682,6 +698,16 @@ func debug_view(view: String) -> void:
 				best = it
 	if view == "stats":
 		_open_stats()
+		return
+	if view == "trash":
+		# пара удалённых жителей из самого людного дома — и открыть корзину
+		var full = null
+		for it in map.items:
+			if it.kind == "house" and (full == null or it.folder.files.size() > full.folder.files.size()):
+				full = it
+		for k in 3:
+			map.remove_file(full, full.folder.files[0])
+		ui.trash.open()
 		return
 	if view == "help":
 		ui.help.show()

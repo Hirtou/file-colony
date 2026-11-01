@@ -15,6 +15,7 @@ signal stats_pressed
 
 const STATS := preload("res://scripts/stats_view.gd")
 const HELP := preload("res://scripts/help_view.gd")
+const TRASH := preload("res://scripts/trash_view.gd")
 
 const BG := Color(0.065, 0.075, 0.1, 0.88)
 const TEXT := Color(0.92, 0.93, 0.96)
@@ -57,6 +58,7 @@ static var legend_open := false  # помнится, пока игра запу�
 var minimap: Minimap
 var stats: PanelContainer  # окно статистики (stats_view.gd)
 var help: PanelContainer   # справка F1 (help_view.gd)
+var trash: PanelContainer  # корзина (trash_view.gd)
 var _legend_panel: PanelContainer
 var _files_rows := 0
 
@@ -256,6 +258,13 @@ func _ready() -> void:
 	st.tooltip_text = "Статистика города: типы файлов, самые большие файлы и дома  (I)"
 	st.pressed.connect(stats_pressed.emit)
 	row.add_child(st)
+	var bin := Button.new()
+	bin.text = "Корзина"
+	bin.tooltip_text = "Удалённые жители: вернуть домой или очистить"
+	bin.pressed.connect(func():
+		hide_tip()
+		trash.open())
+	row.add_child(bin)
 	var hb := Button.new()
 	hb.text = "?"
 	hb.tooltip_text = "Управление и горячие клавиши  (F1)"
@@ -376,6 +385,9 @@ func _ready() -> void:
 	help = HELP.new()
 	help.visibility_changed.connect(func(): shade.visible = help.visible or stats.visible or tree.visible)
 	root.add_child(help)
+	trash = TRASH.new()
+	trash.visibility_changed.connect(func(): shade.visible = trash.visible or stats.visible or tree.visible)
+	root.add_child(trash)
 
 	# подсказка у мыши
 	_tip = PanelContainer.new()

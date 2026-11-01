@@ -58,6 +58,7 @@ const TIPS := [
 	"Совет: F12 — снимок экрана.",
 ]
 var _back: Button
+var _trash: PanelContainer  # корзина (trash_view.gd)
 var _hint: Label
 var _picking := false       # выбираем город на планете
 var _sites: Array = []      # города планеты (CitySites)
@@ -223,6 +224,25 @@ func _build_ui() -> void:
 	_back.visible = false
 	_back.pressed.connect(_leave_cities)
 	_ui.add_child(_back)
+	# корзина — справа сверху, окно по центру поверх затемнения
+	var bin := Button.new()
+	bin.text = "Корзина"
+	bin.add_theme_font_size_override("font_size", 18)
+	bin.anchor_left = 1.0
+	bin.anchor_right = 1.0
+	bin.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	bin.offset_right = -16
+	bin.offset_top = 28
+	_ui.add_child(bin)
+	var shade := ColorRect.new()
+	shade.color = Color(0, 0, 0, 0.7)
+	shade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	shade.visible = false
+	_ui.add_child(shade)
+	_trash = ContinentUI.TRASH.new()
+	_trash.visibility_changed.connect(func(): shade.visible = _trash.visible)
+	_ui.add_child(_trash)
+	bin.pressed.connect(_trash.open)
 	# выбор диска внизу по центру
 	var bp := PanelContainer.new()
 	bp.anchor_left = 0.5
@@ -376,6 +396,11 @@ func _rad_per_px() -> float:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if busy or continent != null:
+		return
+	if _trash.visible:
+		if event.is_action_pressed("ui_cancel"):
+			get_viewport().set_input_as_handled()
+			_trash.hide()
 		return
 	if event is InputEventMouseButton:
 		if event.button_index == MOUSE_BUTTON_WHEEL_UP or event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
