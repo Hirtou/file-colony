@@ -7,7 +7,7 @@
 <meta name="description" content="Твои папки — города, файлы — жители. 2D-игра на Godot: файловая система как живой мир.">
 <meta property="og:title" content="Файловая колония — симулятор проводника">
 <meta property="og:description" content="Твои папки — города, файлы — жители.">
-<meta property="og:image" content="images/city.png">
+<meta property="og:image" content="https://hirtou.github.io/file-colony/images/banner.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700;800&display=swap" rel="stylesheet">
@@ -123,6 +123,10 @@
   .feature h3 { margin: 0 0 6px; font-size: 21px; color: var(--gold); }
   .feature p { margin: 0; color: var(--muted); }
   .feature.wide { grid-column: 1 / -1; }
+  .new {
+    display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 999px; vertical-align: middle;
+    font-size: 12px; font-weight: 500; color: #2a1a06; background: var(--gold);
+  }
 
   .how { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
   .how .panel { padding: 24px 26px; }
@@ -185,7 +189,7 @@
       <p class="lead">Симулятор проводника: файловая система как живой мир вид сверху.
         Диски — планеты, папки — деревни и дома, а каждый файл — человечек со своей жизнью.</p>
       <div class="badges">
-        <span class="badge">🧪 Тестовая версия</span>
+        <span class="badge">🧪 Тестовая версия 0.3</span>
         <span class="badge">🇷🇺 🇬🇧 Русский и English</span>
         <span class="badge">🎮 Godot 4</span>
         <span class="badge">📖 Открытый код · MIT</span>
@@ -222,19 +226,39 @@
     <p class="sub reveal">Нажми на картинку, чтобы рассмотреть поближе.</p>
     <div class="features">
       <article class="feature panel reveal">
-        <div class="shot"><img src="images/space.png" alt="Космос с планетами" loading="lazy"></div>
+        <div class="shot"><img src="images/v2_space.png" alt="Планета-диск в космосе" loading="lazy"></div>
         <div class="body"><h3>Диски — планеты</h3>
-          <p>Облака, огни городов на ночной стороне, луны. Солнце вдалеке. Клик по планете — приближение, «Войти» — нырок на поверхность.</p></div>
+          <p>Каждый диск — 3D-планета с атмосферой, облаками и луной. Камеру можно крутить вокруг планеты, при смене диска она перелетает к другой.</p></div>
       </article>
       <article class="feature panel reveal">
-        <div class="shot"><img src="images/city.png" alt="Город сверху" loading="lazy"></div>
-        <div class="body"><h3>Папки — города и дома</h3>
-          <p>Каждая папка верхнего уровня — свой город с площадью и колодцем. Внутри районы и дома, между городами — дороги.</p></div>
+        <div class="shot"><img src="images/v2_cities.png" alt="Города на глобусе" loading="lazy"></div>
+        <div class="body"><h3>Папки — города</h3>
+          <p>На глобусе видны границы городов, их названия и число жителей. Выбери город — камера спустится к нему.</p></div>
       </article>
       <article class="feature panel reveal">
-        <div class="shot"><img src="images/house.png" alt="Дом с мебелью и жителями" loading="lazy"></div>
+        <div class="shot"><img src="images/v2_river.png" alt="Город у реки" loading="lazy"></div>
+        <div class="body"><h3>Местность</h3>
+          <p>Большие города с районами, улицами и обставленными домами. Прибрежные стоят у океана, во внутренних есть озёра и реки.</p></div>
+      </article>
+      <article class="feature panel reveal">
+        <div class="shot"><img src="images/v2_work.png" alt="Жители за работой" loading="lazy"></div>
         <div class="body"><h3>Файлы — жители</h3>
-          <p>Одежда — тип файла, шапки и причёски у всех свои. Сидят за столом, греются у очага, ходят на рынок и в гости, болтают, ночью спят.</p></div>
+          <p>Цвет одежды — тип файла. Жители работают на рынке, в пекарне, кузнице, столярной мастерской, на полях и мостках, ходят в гости и ночью спят.</p></div>
+      </article>
+      <article class="feature panel reveal">
+        <div class="shot"><img src="images/v3_rain.png" alt="Дождь над городом" loading="lazy"></div>
+        <div class="body"><h3>Погода<span class="new">новое в 0.3</span></h3>
+          <p>Примерно каждый третий день идёт дождь: небо темнеет, по земле и воде расходятся брызги, жители прячутся по домам. Шум дождя и звуки действий генерируются кодом.</p></div>
+      </article>
+      <article class="feature panel reveal">
+        <div class="shot"><img src="images/v3_stats.png" alt="Статистика города" loading="lazy"></div>
+        <div class="body"><h3>Статистика города<span class="new">новое в 0.3</span></h3>
+          <p>Обзор в духе анализатора диска: место по типам файлов, самые большие файлы и самые людные дома. Клик по строке покажет объект на карте.</p></div>
+      </article>
+      <article class="feature panel reveal">
+        <div class="shot"><img src="images/v2_ducks.png" alt="Утки на озере" loading="lazy"></div>
+        <div class="body"><h3>Живой мир</h3>
+          <p>Утки на воде, круги от рыб, дым из кузницы, тени облаков, смена дня и ночи. В углу — мини-карта всего города.</p></div>
       </article>
       <article class="feature panel reveal">
         <div class="shot"><img src="images/chase.png" alt="Киллеры гонятся за файлом" loading="lazy"></div>
@@ -242,7 +266,7 @@
           <p>За удаляемым файлом приходят киллеры с мушкетами. Он убегает или прячется под кроватью, но его догоняют. Копирование и вставка — тоже есть.</p></div>
       </article>
       <article class="feature panel wide reveal">
-        <div class="shot"><img src="images/family.png" alt="Семейное древо" loading="lazy"></div>
+        <div class="shot"><img src="images/v2_family.png" alt="Семейное древо" loading="lazy"></div>
         <div class="body"><h3>Семейное древо</h3>
           <p>Папка — родитель, всё внутри неё — её дети: сыновья и дочери. Ходи по роду стрелками, ищи родственников, прыгай к ним на карту.</p></div>
       </article>
@@ -279,10 +303,13 @@
     <p class="sub reveal">Мышь и пара клавиш — больше ничего не нужно.</p>
     <div class="panel keys reveal">
       <table>
-        <tr><td>Камера</td><td><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> — двигать, колёсико — приближать, <kbd>Esc</kbd> — назад</td></tr>
+        <tr><td>Космос</td><td>Тянуть мышью — вращать камеру, колёсико — приближать, <kbd>←</kbd><kbd>→</kbd> — другой диск</td></tr>
+        <tr><td>Камера</td><td><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> или стрелки — двигать, средняя кнопка — тащить карту, колёсико — приближать к курсору, <kbd>Esc</kbd> — назад</td></tr>
         <tr><td>Карта</td><td>ЛКМ — выбрать или открыть, ПКМ — меню: копировать, вставить, удалить, древо</td></tr>
         <tr><td>Файлы</td><td><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd> / <kbd>Delete</kbd>, <kbd>Ctrl</kbd>+<kbd>F</kbd> — поиск</td></tr>
+        <tr><td>Город</td><td><kbd>I</kbd> — статистика, <kbd>L</kbd> — свернуть легенду, <kbd>P</kbd> или <kbd>Пробел</kbd> — пауза, клик по мини-карте — перейти</td></tr>
         <tr><td>Древо</td><td><kbd>T</kbd> — открыть, <kbd>←</kbd><kbd>→</kbd> — братья и сёстры, <kbd>↑</kbd> — родитель, <kbd>↓</kbd> — дети, <kbd>Backspace</kbd> — назад</td></tr>
+        <tr><td>Везде</td><td><kbd>F1</kbd> — справка по клавишам (в городе), <kbd>F12</kbd> — снимок экрана</td></tr>
       </table>
     </div>
   </section>
@@ -290,7 +317,7 @@
 
 <footer>
   <div class="wrap">
-    Файловая колония · тестовая версия · открытый исходный код под лицензией MIT ·
+    Файловая колония · тестовая версия 0.3 · открытый исходный код под лицензией MIT ·
     <a data-repo="" href="#how">GitHub</a><br>
     Вдохновлено RimWorld; проект не связан с Ludeon Studios.
   </div>
