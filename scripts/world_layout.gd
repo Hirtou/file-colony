@@ -642,10 +642,21 @@ static func _river_through(items: Array, town: Rect2i, ctx: Dictionary, rng: Ran
 	if prev[goal] < 0:
 		return  # не прошла — значит, без реки
 	var inside := town.grow(2)
+	var orig: PackedByteArray = ctx.ground.duplicate()  # земля до реки: по ней видно, куда идёт дорога
+	var road := func(q: Vector2i) -> bool:
+		if q.x < 0 or q.y < 0 or q.x >= n or q.y >= n:
+			return false
+		var g: int = orig[q.y * n + q.x]
+		return g == G.STREET or g == G.PATH or g == G.PIER
 	var i := goal
+	var flow := Vector2i(1, 0)
 	while i >= 0:
 		@warning_ignore("integer_division")
 		var c := Vector2i(i % n, i / n)
+		if prev[i] >= 0:
+			@warning_ignore("integer_division")
+			flow = c - Vector2i(prev[i] % n, prev[i] / n)
+		var across := Vector2i(flow.y, flow.x)
 		var rad := 1 if inside.has_point(c) else 2
 		for dy in range(-rad, rad + 1):
 			for dx in range(-rad, rad + 1):
@@ -656,8 +667,11 @@ static func _river_through(items: Array, town: Rect2i, ctx: Dictionary, rng: Ran
 				if hard[j] == 1 or (near[j] == 1 and q != c):
 					continue
 				var g: int = ctx.ground[j]
+				if road.call(q) and (road.call(q + flow) or road.call(q - flow)) \
+						and not (road.call(q + across) and road.call(q - across)):
+					continue  # дорога вдоль реки — остаётся берегом, а не досками вдоль воды
 				if g == G.STREET or g == G.PATH:
-					ctx.ground[j] = G.PIER  # мост
+					ctx.ground[j] = G.PIER  # мост поперёк реки
 				elif g != G.PIER:
 					ctx.ground[j] = G.WATER
 		i = prev[i]
@@ -780,10 +794,15 @@ static func _exits(nd: Dictionary, cell: Vector2i, ctx: Dictionary) -> void:
 		var side := Vector2i(absi(d.y), absi(d.x))
 		var c: Vector2i = _gate(cell, s, nd.entr, d) + d
 		while inside.call(c) and inside.call(c + side):
-			if ctx.ground[c.y * n + c.x] == G.WATER or ctx.ground[(c + side).y * n + (c + side).x] == G.WATER:
+			var wa: bool = ctx.ground[c.y * n + c.x] == G.WATER
+			var wb: bool = ctx.ground[(c + side).y * n + (c + side).x] == G.WATER
+			if (wa or wb) and (ctx.ocean[c.y * n + c.x] == 1 or ctx.ocean[(c + side).y * n + (c + side).x] == 1):
+				break  # океан — дорога кончается
+			if wa and wb:
+				# мост только поперёк воды (обе полосы над водой); край берега — дорога по суше
 				var run := 0
 				var p := c
-				while inside.call(p) and inside.call(p + side) and (ctx.ground[p.y * n + p.x] == G.WATER or ctx.ground[(p + side).y * n + (p + side).x] == G.WATER):
+				while inside.call(p) and inside.call(p + side) and ctx.ground[p.y * n + p.x] == G.WATER and ctx.ground[(p + side).y * n + (p + side).x] == G.WATER:
 					if ctx.ocean[p.y * n + p.x] == 1 or ctx.ocean[(p + side).y * n + (p + side).x] == 1:
 						run = 99
 						break
