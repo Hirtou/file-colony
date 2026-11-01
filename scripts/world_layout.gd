@@ -580,6 +580,17 @@ static func _river_through(items: Array, town: Rect2i, ctx: Dictionary, rng: Ran
 		var g: int = ctx.ground[i]
 		if g == G.PLAZA or g == G.YARD or g == G.FIELD or g == G.PIER:
 			hard[i] = 1
+	# клетка рядом с улицей: река вдоль улицы дорога, а поперёк — короткий ровный мост
+	var by_road := PackedByteArray()
+	by_road.resize(n * n)
+	for y in n:
+		for x in n:
+			if not walkable(ctx.ground[y * n + x]):
+				continue
+			for d in DIRS4:
+				var q: Vector2i = Vector2i(x, y) + d
+				if q.x >= 0 and q.y >= 0 and q.x < n and q.y < n and not walkable(ctx.ground[q.y * n + q.x]):
+					by_road[q.y * n + q.x] = 1
 	var dir := coast.normalized() if coast.length() > 0.01 else Vector2.from_angle(rng.randf() * TAU)
 	var center := Vector2(town.get_center())
 	var side := dir.orthogonal()
@@ -590,7 +601,7 @@ static func _river_through(items: Array, town: Rect2i, ctx: Dictionary, rng: Ran
 	noise.seed = rng.randi()
 	noise.frequency = 0.08
 	# Дейкстра с «вёдрами» (цены целые и небольшие)
-	const SPAN := 25
+	const SPAN := 40  # больше самого дорогого шага
 	var dist := PackedInt32Array()
 	dist.resize(n * n)
 	dist.fill(1 << 30)
@@ -634,6 +645,8 @@ static func _river_through(items: Array, town: Rect2i, ctx: Dictionary, rng: Ran
 				step = 18  # через улицу — мост: можно, но поменьше
 			if near[j] == 1:
 				step += 6
+			if by_road[j] == 1:
+				step += 8
 			if cur + step < dist[j]:
 				dist[j] = cur + step
 				prev[j] = i
@@ -648,6 +661,7 @@ static func _river_through(items: Array, town: Rect2i, ctx: Dictionary, rng: Ran
 			return false
 		var g: int = orig[q.y * n + q.x]
 		return g == G.STREET or g == G.PATH or g == G.PIER
+	var made := {}  # клетки новых мостов
 	var i := goal
 	var flow := Vector2i(1, 0)
 	while i >= 0:
@@ -672,15 +686,80 @@ static func _river_through(items: Array, town: Rect2i, ctx: Dictionary, rng: Ran
 					continue  # дорога вдоль реки — остаётся берегом, а не досками вдоль воды
 				if g == G.STREET or g == G.PATH:
 					ctx.ground[j] = G.PIER  # мост поперёк реки
+					made[q] = true
 				elif g != G.PIER:
 					ctx.ground[j] = G.WATER
 		i = prev[i]
+	_even_bridges(made, orig, hard, ctx)
 	var keep := []
 	for d in ctx.decor:
 		var dc := Vector2i(d.c.floor())
 		if ctx.ground[dc.y * n + dc.x] != G.WATER:
 			keep.append(d)
 	ctx.decor = keep
+
+## Мост, где река наискосок режет широкую улицу, выходит рваным: полосы разной длины, между ними
+## кусок мостовой в воде. Каждый мост — ровный прямоугольник: вся улица в его рамке — доски.
+static func _even_bridges(made: Dictionary, orig: PackedByteArray, hard: PackedByteArray, ctx: Dictionary) -> void:
+	var n: int = ctx.n
+	var seen := {}
+	for start in made:
+		if seen.has(start):
+			continue
+		var box := Rect2i(start, Vector2i.ONE)
+		var stack: Array = [start]
+		var cells: Array[Vector2i] = []
+		seen[start] = true
+		while not stack.is_empty():
+			var c: Vector2i = stack.pop_back()
+			cells.append(c)
+			box = box.expand(c).merge(Rect2i(c, Vector2i.ONE))
+			for d in DIRS4:
+				var nb: Vector2i = c + d
+				if made.has(nb) and not seen.has(nb):
+					seen[nb] = true
+					stack.append(nb)
+		var hx := Vector2i(1, 0)
+		var vy := Vector2i(0, 1)
+		if not ((_beside(box, hx, ctx, true) and _beside(box, vy, ctx, false)) \
+				or (_beside(box, vy, ctx, true) and _beside(box, hx, ctx, false))):
+			# не мост (вода с двух сторон, суша на обоих концах), а доски вдоль берега или на изгибе реки:
+			# посреди воды — вода, у берега — снова дорога
+			for c in cells:
+				var j := c.y * n + c.x
+				var w := 0
+				for d in DIRS4:
+					var q: Vector2i = c + d
+					if q.x >= 0 and q.y >= 0 and q.x < n and q.y < n and ctx.ground[q.y * n + q.x] == G.WATER:
+						w += 1
+				ctx.ground[j] = G.WATER if w >= 2 and orig[j] != G.STREET else orig[j]
+			continue
+		if mini(box.size.x, box.size.y) > 4 or maxi(box.size.x, box.size.y) > 8:
+			continue  # длинная полоса вдоль реки — не трогаем, чтобы не мостить сушу
+		for y in range(box.position.y, box.end.y):
+			for x in range(box.position.x, box.end.x):
+				var j := y * n + x
+				if hard[j] == 0 and (orig[j] == G.STREET or orig[j] == G.PATH):
+					ctx.ground[j] = G.PIER
+
+## По обе стороны рамки box вдоль оси ax (слева и справа или сверху и снизу) вода (water: больше половины
+## клеток стороны — под мостом течёт река) или суша (не water: хоть одна клетка — мосту есть куда выйти)?
+static func _beside(box: Rect2i, ax: Vector2i, ctx: Dictionary, water: bool) -> bool:
+	var n: int = ctx.n
+	var along := Vector2i(ax.y, ax.x)
+	var length := box.size.y if ax.x != 0 else box.size.x
+	var lo := box.position - ax
+	var hi := box.position + Vector2i(box.size.x, 0) if ax.x != 0 else box.position + Vector2i(0, box.size.y)
+	var a := 0
+	var b := 0
+	for k in length:
+		var p := lo + along * k
+		var q := hi + along * k
+		a += 1 if p.x >= 0 and p.y >= 0 and p.x < n and p.y < n and (ctx.ground[p.y * n + p.x] == G.WATER) == water else 0
+		b += 1 if q.x >= 0 and q.y >= 0 and q.x < n and q.y < n and (ctx.ground[q.y * n + q.x] == G.WATER) == water else 0
+	if water:
+		return a * 2 > length and b * 2 > length
+	return a > 0 and b > 0
 
 ## Отрезок задевает прямоугольник?
 static func _crosses(a: Vector2, b: Vector2, r: Rect2) -> bool:
